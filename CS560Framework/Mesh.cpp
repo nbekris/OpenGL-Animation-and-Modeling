@@ -15,6 +15,7 @@ using namespace gl;
 #define GLM_SWIZZLE
 #include <glm/glm.hpp>
 #include <glm/ext.hpp>
+#include <iomanip>
 #include <iostream>
 
 #include "Mesh.h"
@@ -80,14 +81,24 @@ glm::mat4 Mesh::GetModelTransform() const
 	return Translate(0.f, 0.f, -2.5f) * Rotate(0, 90.f) * Scale(0.1f, 0.1f, 0.1f);
 }
 
-glm::vec3 Mesh::GetBindPosePosition(const aiMatrix4x4& globalTransform) const
+glm::vec3 Mesh::GetBindPosePosition(const std::string& boneName) const
 {
-	const aiMatrix4x4 meshSpaceTransform = m_inverseTrans * globalTransform;
-	return glm::vec3(meshSpaceTransform.a4, meshSpaceTransform.b4, meshSpaceTransform.c4);
+	// An Assimp offset matrix converts a mesh-space vertex into the bone's
+	// bind-pose local space.  Its inverse therefore gives the bone joint in the
+	// exact coordinate system used by the vertices we render.  Scene-node
+	// transforms are not reliable here: FBX files commonly add helper/pivot
+	// nodes whose transforms are not applied to our flattened mesh vertices.
+	const auto bone = m_name_index.find(boneName);
+	if (bone == m_name_index.end() || bone->second >= static_cast<int>(m_boneInfo.size()))
+		return glm::vec3(0.0f);
+
+	aiMatrix4x4 boneToMesh = m_boneInfo[bone->second].OffsetMatrix;
+	boneToMesh.Inverse();
+	return glm::vec3(boneToMesh.a4, boneToMesh.b4, boneToMesh.c4);
 }
 
 void Mesh::CollectBindPoseLines(const aiNode* node, const aiMatrix4x4& parentTransform,
-	bool hasParentBone, const aiMatrix4x4& parentBoneTransform,
+	bool hasParentBone, const std::string& parentBoneName,
 	std::vector<glm::vec3>& endpoints) const
 {
 	const aiMatrix4x4 globalTransform = parentTransform * node->mTransformation;
@@ -96,19 +107,19 @@ void Mesh::CollectBindPoseLines(const aiNode* node, const aiMatrix4x4& parentTra
 
 	if (isBone && hasParentBone)
 	{
-		endpoints.push_back(GetBindPosePosition(parentBoneTransform));
-		endpoints.push_back(GetBindPosePosition(globalTransform));
+		endpoints.push_back(GetBindPosePosition(parentBoneName));
+		endpoints.push_back(GetBindPosePosition(nodeName));
 	}
 
 	const bool childHasParentBone = isBone || hasParentBone;
-	const aiMatrix4x4& childParentBoneTransform = isBone ? globalTransform : parentBoneTransform;
+	const std::string& childParentBoneName = isBone ? nodeName : parentBoneName;
 	for (unsigned int i = 0; i < node->mNumChildren; ++i)
 	{
 		CollectBindPoseLines(
 			node->mChildren[i], 
 			globalTransform, 
 			childHasParentBone,
-			childParentBoneTransform,
+			childParentBoneName,
 			endpoints);
 	}
 }
@@ -122,8 +133,25 @@ void Mesh::BuildBindPoseSkeleton()
 			0.0, 1.0, 0.0, 0.0,
 			0.0, 0.0, 1.0, 0.0,
 			0.0, 0.0, 0.0, 1.0);
-		CollectBindPoseLines(m_scene->mRootNode, identity, false, identity, endpoints);
+		CollectBindPoseLines(m_scene->mRootNode, identity, false, std::string(), endpoints);
 	}
+
+	// Print once at load time so the bind-pose skeleton can be inspected without
+	// flooding the console every frame from DrawBindPoseSkeleton().
+	const std::ios::fmtflags consoleFlags = std::cout.flags(); // round decimal values
+	const std::streamsize consolePrecision = std::cout.precision();
+	std::cout << std::fixed << std::setprecision(3);
+	std::cout << "Bind-pose skeleton: " << endpoints.size() / 2 << " line segment(s)\n";
+	for (size_t lineIndex = 0; lineIndex + 1 < endpoints.size(); lineIndex += 2)
+	{
+		const glm::vec3& start = endpoints[lineIndex];
+		const glm::vec3& end = endpoints[lineIndex + 1];
+		std::cout << "  line " << lineIndex / 2
+			<< ": (" << start.x << ", " << start.y << ", " << start.z << ")"
+			<< " -> (" << end.x << ", " << end.y << ", " << end.z << ")\n";
+	}
+	std::cout.flags(consoleFlags);
+	std::cout.precision(consolePrecision);
 
 	m_bindPoseLines.SetLines(endpoints);
 }
@@ -131,12 +159,12 @@ void Mesh::BuildBindPoseSkeleton()
 void Mesh::DrawBindPoseSkeleton(ShaderProgram& shader, glm::mat4& worldProj, glm::mat4& worldView)
 {
 	glm::mat4 modelTransform = GetModelTransform();
-	const glm::vec3 skeletonColor(0.1f, 0.9f, 1.0f);
+	const glm::vec3 skeletonColor(1.0f, 0.0f, 0.0f);
 
 	// This is a debugging overlay: draw it over the model rather than letting surface depth hide it.
 	const bool depthWasEnabled = glIsEnabled(GL_DEPTH_TEST) == GL_TRUE;
 	glDisable(GL_DEPTH_TEST);
-	glLineWidth(2.0f);
+	glLineWidth(3.0f);
 	m_bindPoseLines.Draw(shader, worldProj, worldView, modelTransform, skeletonColor);
 	glLineWidth(1.0f);
 	if (depthWasEnabled)

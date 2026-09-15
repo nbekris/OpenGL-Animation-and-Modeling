@@ -70,9 +70,9 @@ private:
     int GetBoneId(const aiBone* b);
     void BuildBindPoseSkeleton();
     void CollectBindPoseLines(const aiNode* node, const aiMatrix4x4& parentTransform,
-        bool hasParentBone, const aiMatrix4x4& parentBoneTransform,
+        bool hasParentBone, const std::string& parentBoneName,
         std::vector<glm::vec3>& endpoints) const;
-    glm::vec3 GetBindPosePosition(const aiMatrix4x4& globalTransform) const;
+    glm::vec3 GetBindPosePosition(const std::string& boneName) const;
     glm::mat4 GetModelTransform() const;
 
     GLuint m_vao = 0;
