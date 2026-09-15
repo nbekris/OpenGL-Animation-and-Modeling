@@ -129,13 +129,21 @@ void Mesh::BuildBindPoseSkeleton()
 	std::vector<glm::vec3> endpoints;
 	if (m_scene && m_scene->mRootNode)
 	{
-		const aiMatrix4x4 identity(1.0, 0.0, 0.0, 0.0,
+		const aiMatrix4x4 identity(
+			1.0, 0.0, 0.0, 0.0,
 			0.0, 1.0, 0.0, 0.0,
 			0.0, 0.0, 1.0, 0.0,
 			0.0, 0.0, 0.0, 1.0);
 		CollectBindPoseLines(m_scene->mRootNode, identity, false, std::string(), endpoints);
 	}
 
+	PrintBoneCoords(endpoints);
+
+	m_bindPoseLines.SetLines(endpoints);
+}
+
+void Mesh::PrintBoneCoords(std::vector<glm::vec3> endpoints) 
+{
 	// Print once at load time so the bind-pose skeleton can be inspected without
 	// flooding the console every frame from DrawBindPoseSkeleton().
 	const std::ios::fmtflags consoleFlags = std::cout.flags(); // round decimal values
@@ -152,8 +160,6 @@ void Mesh::BuildBindPoseSkeleton()
 	}
 	std::cout.flags(consoleFlags);
 	std::cout.precision(consolePrecision);
-
-	m_bindPoseLines.SetLines(endpoints);
 }
 
 void Mesh::DrawBindPoseSkeleton(ShaderProgram& shader, glm::mat4& worldProj, glm::mat4& worldView)

@@ -69,6 +69,7 @@ private:
     void InitBone(const aiMesh* mesh, int index);
     int GetBoneId(const aiBone* b);
     void BuildBindPoseSkeleton();
+    void PrintBoneCoords(std::vector<glm::vec3> endpoints);
     void CollectBindPoseLines(const aiNode* node, const aiMatrix4x4& parentTransform,
         bool hasParentBone, const std::string& parentBoneName,
         std::vector<glm::vec3>& endpoints) const;
