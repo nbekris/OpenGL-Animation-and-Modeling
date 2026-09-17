@@ -289,7 +289,9 @@ void Scene::DrawScene()
     floor.Draw(*basicShader, WorldProj, WorldView);
 
     if (bone)
+    {
         model->DrawBindPoseSkeleton(*basicShader, WorldProj, WorldView);
+    }
 
 }
 

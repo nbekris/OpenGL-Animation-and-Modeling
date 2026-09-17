@@ -90,6 +90,8 @@ glm::vec3 Mesh::GetBindPosePosition(const std::string& boneName) const
 	// nodes whose transforms are not applied to our flattened mesh vertices.
 	const auto bone = m_name_index.find(boneName);
 	if (bone == m_name_index.end() || bone->second >= static_cast<int>(m_boneInfo.size()))
+		// Might want to return an error here instead of 0,0,0
+		// since 0,0,0 can be mistaken for the origin.
 		return glm::vec3(0.0f);
 
 	aiMatrix4x4 boneToMesh = m_boneInfo[bone->second].OffsetMatrix;
@@ -101,8 +103,13 @@ void Mesh::CollectBindPoseLines(const aiNode* node, const aiMatrix4x4& parentTra
 	bool hasParentBone, const std::string& parentBoneName,
 	std::vector<glm::vec3>& endpoints) const
 {
+	// This global transform variable and transform accumulation is not actually needed.
+	// GetBindPosePosition uses offset matrix from Assimp to find line endpoints.
+	// Leaving for now since we will need this most likely for animating.
 	const aiMatrix4x4 globalTransform = parentTransform * node->mTransformation;
 	const std::string nodeName(node->mName.C_Str());
+	// Might want to take another look at this since I think this might be redundant logic
+	// if there is another location where we figure bone names.
 	const bool isBone = m_name_index.find(nodeName) != m_name_index.end();
 
 	if (isBone && hasParentBone)
