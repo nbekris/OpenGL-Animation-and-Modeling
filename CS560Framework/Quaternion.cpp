@@ -25,7 +25,7 @@ glm::mat4 Quaternion::ToMatrix() const
 	matrix[0][2] = 2.0f * (x*z - s*y);
 	matrix[1][2] = 2.0f * (y*z + s*x);
 	matrix[2][2] = 1.0f - 2.0f * (x*x + y*y);
-	
+
 	return matrix;
 }
 

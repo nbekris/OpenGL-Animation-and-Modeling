@@ -13,7 +13,11 @@ VQS::VQS(const glm::vec3 & translation, const Quaternion& rotation, float scale)
 
 glm::mat4 VQS::ToMatrix() const
 {
-	return glm::mat4();
+	glm::mat4 matrix = _rotation.ToMatrix();
+
+	glm::vec3 col0 = _translation;
+	matrix[3] = glm::vec4(col0, 1.0f);
+	return matrix;
 }
 
 glm::vec3 VQS::TransformPoint(const glm::vec3 point) const
