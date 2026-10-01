@@ -24,7 +24,7 @@ glm::vec3 VQS::TransformPoint(const glm::vec3 point) const
 	glm::vec3 r = point;
 	float s = _scale;
 
-	// r' = [v,q,s]r = q(sr)q-1 + v
+	// r' = [v,q,s]r = q(sr)q^-1 + v
 	Quaternion rPrime = q * (s * r) * qInverse;
 
 	return glm::vec3{ rPrime._x, rPrime._y, rPrime._z } + v;
@@ -37,16 +37,13 @@ VQS VQS::Inverse() const
 
 VQS VQS::operator*(const VQS& rhs) const
 {
-	//glm::vec3 u = rhs._translation;
-	//Quaternion p = rhs._rotation;
-	//float t = rhs._scale;
+	// [[u, p, t]v, pq, ts] - VQS concatenation
+	// [u, p, t]v = q(sr)q^-1 + v so we can use TransformPoint()
+	glm::vec3 uptv = TransformPoint(rhs._translation);
+	Quaternion pq = _rotation * rhs._rotation;
+	float ts = _scale * rhs._scale;
 
-	//glm::vec3 v = this->_translation;
-	//Quaternion q = this->_rotation;
-	//float s = this->_scale;
-
-	//Quaternion rPrime = 
-	return VQS();
+	return VQS(uptv, pq, ts);
 }
 
 VQS VQS::Interpolate(const VQS& a, const VQS& b, float t)
