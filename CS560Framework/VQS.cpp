@@ -14,22 +14,23 @@ VQS::VQS(const glm::vec3 & translation, const Quaternion& rotation, float scale)
 glm::mat4 VQS::ToMatrix() const
 {
 	glm::mat4 matrix = _rotation.ToMatrix();
-
-	glm::vec3 col0 = _translation;
-	matrix[3] = glm::vec4(col0, 1.0f);
+	matrix[3] = glm::vec4(_translation, 1.0f);
+	matrix[0] *= _scale;
+	matrix[1] *= _scale;
+	matrix[2] *= _scale;
 	return matrix;
 }
 
 glm::vec3 VQS::TransformPoint(const glm::vec3 point) const
 {
 	Quaternion q = _rotation.Normalize();
-	Quaternion qInverse = _rotation.Conjugate();
+	Quaternion qInverse = q.Conjugate();
 	glm::vec3 v = _translation;
 	glm::vec3 r = point;
 	float s = _scale;
 
 	// r' = [v,q,s]r = q(sr)q^-1 + v
-	Quaternion rPrime = q * (s * r) * qInverse;
+	Quaternion rPrime = q * (s * r)/* * qInverse*/;
 
 	return glm::vec3{ rPrime._x, rPrime._y, rPrime._z } + v;
 }

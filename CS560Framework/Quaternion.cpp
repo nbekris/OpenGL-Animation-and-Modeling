@@ -49,6 +49,13 @@ Quaternion Quaternion::Conjugate() const
 	return Quaternion{ _s, -_x, -_y, -_z };
 }
 
+Quaternion Quaternion::Inverse() const
+{
+	this->Normalize();
+	this->Conjugate();
+	return Quaternion(*this);
+}
+
 Quaternion Quaternion::operator*(const Quaternion& q1) const
 {
 	float s1 = _s;

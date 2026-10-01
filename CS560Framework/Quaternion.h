@@ -25,6 +25,8 @@ class Quaternion
 		glm::mat4 ToMatrix() const;
 		Quaternion Normalize() const; // return unit quaternion
 		Quaternion Conjugate() const;
+		Quaternion Inverse() const;
+
 		Quaternion operator*(const Quaternion& rhs) const;
 		Quaternion operator*(const glm::vec3& r) const;
 		Quaternion& operator=(const Quaternion& other)
