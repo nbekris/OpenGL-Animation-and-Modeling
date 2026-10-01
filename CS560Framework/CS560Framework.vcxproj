@@ -146,11 +146,13 @@
     <ClCompile Include="interact.cpp" />
     <ClCompile Include="LineRenderer.cpp" />
     <ClCompile Include="Mesh.cpp" />
+    <ClCompile Include="Quaternion.cpp" />
     <ClCompile Include="scene.cpp" />
     <ClCompile Include="shader.cpp" />
     <ClCompile Include="shapes.cpp" />
     <ClCompile Include="texture.cpp" />
     <ClCompile Include="transform.cpp" />
+    <ClCompile Include="VQS.cpp" />
     <ClCompile Include="WireframeFloor.cpp" />
   </ItemGroup>
   <ItemGroup>
@@ -161,11 +163,13 @@
     <ClInclude Include="interact.h" />
     <ClInclude Include="LineRenderer.h" />
     <ClInclude Include="Mesh.h" />
+    <ClInclude Include="Quaternion.h" />
     <ClInclude Include="scene.h" />
     <ClInclude Include="shader.h" />
     <ClInclude Include="shapes.h" />
     <ClInclude Include="texture.h" />
     <ClInclude Include="transform.h" />
+    <ClInclude Include="VQS.h" />
     <ClInclude Include="WireframeFloor.h" />
   </ItemGroup>
   <ItemGroup>

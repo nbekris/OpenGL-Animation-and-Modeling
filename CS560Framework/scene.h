@@ -60,8 +60,8 @@ public:
 
     //UI
     bool play = true;
-    bool bone = false;
-    bool mesh = true;
+    bool bone = true;
+    bool mesh = false;
 
     // Shader programs
     ShaderProgram* lightingProgram;

@@ -229,7 +229,10 @@ void Scene::DrawScene()
 
     long double curr = glfwGetTime();
     long double dt = ((float)(curr - start));
-    model->Draw(programId, dt);
+    if (mesh)
+    {
+        model->Draw(programId, dt);
+    }
 
 
     gBuffer.UnbindFBO();
@@ -290,7 +293,7 @@ void Scene::DrawScene()
 
     if (bone)
     {
-        model->DrawBindPoseSkeleton(*basicShader, WorldProj, WorldView);
+        model->DrawSkeleton(*basicShader, WorldProj, WorldView);
     }
 
 }
