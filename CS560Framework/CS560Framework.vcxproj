@@ -145,6 +145,7 @@
     <ClCompile Include="include\imgui-1.91.1\imgui_widgets.cpp" />
     <ClCompile Include="interact.cpp" />
     <ClCompile Include="LineRenderer.cpp" />
+    <ClCompile Include="Animator.cpp" />
     <ClCompile Include="Mesh.cpp" />
     <ClCompile Include="Quaternion.cpp" />
     <ClCompile Include="scene.cpp" />
@@ -162,6 +163,7 @@
     <ClInclude Include="gbuffer.h" />
     <ClInclude Include="interact.h" />
     <ClInclude Include="LineRenderer.h" />
+    <ClInclude Include="Animator.h" />
     <ClInclude Include="Mesh.h" />
     <ClInclude Include="Quaternion.h" />
     <ClInclude Include="scene.h" />

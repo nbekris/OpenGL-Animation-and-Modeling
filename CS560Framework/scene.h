@@ -37,7 +37,7 @@ public:
     GBuffer gBuffer;
     unsigned int id, bindpoint;
 
-    long double start;
+    double previousFrameTime = 0.0;
 
     int key;
     float spin, tilt, speed, ry, front, back;
@@ -59,7 +59,6 @@ public:
     WireframeFloor floor;
 
     //UI
-    bool play = true;
     bool bone = true;
     bool mesh = false;
 

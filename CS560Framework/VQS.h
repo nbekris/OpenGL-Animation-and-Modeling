@@ -14,7 +14,6 @@ class VQS
 		
 		VQS Inverse() const;
 		VQS operator*(const VQS& rhs) const;
-
 		static VQS Interpolate(const VQS& a, const VQS& b, float t);
 
 		glm::vec3 _translation{ 0.0f };

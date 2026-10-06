@@ -29,6 +29,12 @@ glm::mat4 Quaternion::ToMatrix() const
 	return matrix;
 }
 
+float Quaternion::Dot(Quaternion& q1, Quaternion& q2) const
+{
+
+	return q1._s*q2._s + glm::dot(q1._v, q2._v);
+}
+
 Quaternion Quaternion::Normalize() const
 {
 	float magnitude = std::sqrt(_s*_s + _x*_x + _y*_y + _z*_z);
@@ -56,6 +62,61 @@ Quaternion Quaternion::Inverse() const
 	return Quaternion(*this);
 }
 
+Quaternion Quaternion::Slerp(Quaternion& q1, Quaternion& q2, float u) const
+{
+	// Make sure these are unit quaternions
+	q1 = q1.Normalize();
+	q2 = q2.Normalize();
+
+	// If the cosine is positive, then the path from q1 to q2 is shorter; 
+	// otherwise the path from q1 to −q2 is shorter
+	float d = Dot(q1, q2);
+	if (d < 0.0f) 
+	{
+		// path to -q2 is shorter
+		q2 = q2 * -1.0f;
+		d = -d;
+	}
+
+	d = glm::clamp(d, 0.0f, 1.0f);
+	if (d > 0.9995f)
+	{
+		// Use NLerp when the dot product approaches 1
+		// This is for numerical stability and efficency
+		return ((1.0f - u) * q1 + u * q2).Normalize();
+	}
+
+	float theta = glm::acos(d);
+
+	return (glm::sin(theta - u * theta) / glm::sin(theta))*q1 + (sin(u * theta) / sin(theta))*q2;
+}
+
+Quaternion Quaternion::BezierDeCasteljau(const Quaternion& q0, const Quaternion& q1,
+	const Quaternion& q2, const Quaternion& q3, float u) const
+{
+	// Slerp modifies its arguments, so each interpolation uses its own copies.
+	auto interpolate = [this, u](Quaternion start, Quaternion end)
+	{
+		return Slerp(start, end, u);
+	};
+
+	Quaternion a = interpolate(q0, q1);
+	Quaternion b = interpolate(q1, q2);
+	Quaternion c = interpolate(q2, q3);
+
+	Quaternion d = interpolate(a, b);
+	Quaternion e = interpolate(b, c);
+
+	return interpolate(d, e).Normalize();
+}
+
+Quaternion Quaternion::operator+(const Quaternion& q2) const
+{
+	float scaler = _s + q2._s;
+	glm::vec3 vector = _v + q2._v;
+	return Quaternion(scaler, vector);
+}
+
 Quaternion Quaternion::operator*(const Quaternion& q1) const
 {
 	float s1 = _s;
@@ -77,4 +138,9 @@ Quaternion Quaternion::operator*(const glm::vec3& r) const
 		+ 2.0f * glm::dot(q._v, r) * q._v
 		+ 2.0f * q._s * glm::cross(q._v, r);
 	return Quaternion(0.0f, vector);
+}
+
+Quaternion Quaternion::operator*(const float c) const
+{
+	return Quaternion(c * _s, c * _v);
 }

@@ -3,6 +3,7 @@
 #include <map>
 #include <vector>
 #include "LineRenderer.h"
+#include "Animator.h"
 #include "texture.h"
 #include "shapes.h"
 
@@ -56,11 +57,12 @@ public:
 	~Mesh();
 
     void LoadMesh(const std::string& path);
-	void Draw(int programId, long double dt);
+	void Draw(int programId);
     void DrawSkeleton(ShaderProgram& shader, glm::mat4& worldProj, glm::mat4& worldView);
     void MakeVAO();
 
-    int anim_num = 0;
+    Animator& GetAnimator() { return m_animator; }
+    bool SetAnimation(unsigned int index);
 private:
 
 #define MAX_NUM_BONES_PER_VERTEX 4
@@ -75,14 +77,8 @@ private:
         bool hasParentBone, const std::string& parentBoneName,
         std::vector<glm::vec3>& endpoints) const;
     glm::vec3 GetBindPosePosition(const std::string& boneName) const;
-    const aiNodeAnim* FindAnimationChannel(const aiAnimation* animation,
-        const std::string& nodeName) const;
-    aiMatrix4x4 SampleLocalTransform(const aiNode* node,
-        const aiNodeAnim* channel, double animationTime) const;
-    void CollectAnimatedPoseLines(const aiNode* node, const aiAnimation* animation,
-        double animationTime, const aiMatrix4x4& parentTransform,
-        bool hasParentBone, const glm::vec3& parentBonePosition,
-        std::vector<glm::vec3>& endpoints) const;
+    void CollectSkeletonLines(const aiNode* node, bool hasParentBone,
+        const glm::vec3& parentBonePosition, std::vector<glm::vec3>& endpoints) const;
     glm::mat4 GetModelTransform() const;
 
     GLuint m_vao = 0;
@@ -97,6 +93,7 @@ private:
 	std::vector<int> m_indices;
     std::vector<BoneData> m_bones;
     std::vector<BoneInfo> m_boneInfo;
+    Animator m_animator;
     LineRenderer m_skeletonLines;
 
     aiMatrix4x4 m_inverseTrans;

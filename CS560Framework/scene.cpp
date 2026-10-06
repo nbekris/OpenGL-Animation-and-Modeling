@@ -107,9 +107,9 @@ void Scene::InitializeScene()
 
     model = new Mesh();
     model->LoadMesh("fbx/fbx/roman_D.fbx");
-    model->anim_num = 0;
+    model->GetAnimator().Play();
     
-    start = glfwGetTime();
+    previousFrameTime = glfwGetTime();
 }
 
 void Scene::DrawMenu()
@@ -137,27 +137,31 @@ void Scene::DrawMenu()
         ImGui::EndCombo();
     }
 
-    if (ImGui::Button((play ? "Stop" : "Play")))
+    Animator& animator = model->GetAnimator();
+    if (ImGui::Button(animator.IsPlaying() ? "Pause" : "Play"))
     {
-        play = !play;
+        if (animator.IsPlaying()) animator.Pause();
+        else animator.Play();
     }
+    ImGui::Text("Playback: %.3f seconds / %.3f ticks",
+        animator.GetPlaybackSeconds(), animator.GetSampleTimeTicks());
 
     ImGui::Checkbox("Draw Bone", &bone);
     ImGui::SameLine();
     ImGui::Checkbox("Draw Mesh", &mesh);
 
-    const char* items[] = { "Cycle", "Idle", "Run", "Fall Down", "Attack" };
-    const char* current_item = items[0];
-
-    if (ImGui::BeginCombo("Animation", items[0]))
+    const std::string selectedName = animator.GetAnimationName(animator.GetAnimationIndex());
+    if (ImGui::BeginCombo("Animation", selectedName.empty() ? "No animations" : selectedName.c_str()))
     {
-        for (int n = 0; n < IM_ARRAYSIZE(items); n++)
+        for (unsigned int index = 0; index < animator.GetAnimationCount(); ++index)
         {
-            bool is_selected = (current_item == items[n]); 
-            if (ImGui::Selectable(items[n], is_selected))
-                current_item = items[n];
-            if (is_selected)
-                ImGui::SetItemDefaultFocus();   
+            const bool selected = index == animator.GetAnimationIndex();
+            const std::string name = animator.GetAnimationName(index);
+            ImGui::PushID(static_cast<int>(index));
+            if (ImGui::Selectable(name.c_str(), selected) && !selected)
+                model->SetAnimation(index);
+            if (selected) ImGui::SetItemDefaultFocus();
+            ImGui::PopID();
         }
         ImGui::EndCombo();
     }
@@ -227,11 +231,13 @@ void Scene::DrawScene()
     loc = glGetUniformLocation(programId, "WorldView");
     glUniformMatrix4fv(loc, 1, GL_FALSE, Pntr(WorldView));
 
-    long double curr = glfwGetTime();
-    long double dt = ((float)(curr - start));
+    const double now = glfwGetTime();
+    const double deltaSeconds = now - previousFrameTime;
+    previousFrameTime = now;
+    model->GetAnimator().Update(deltaSeconds);
     if (mesh)
     {
-        model->Draw(programId, dt);
+        model->Draw(programId);
     }
 
 

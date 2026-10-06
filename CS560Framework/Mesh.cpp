@@ -55,6 +55,7 @@ Mesh::~Mesh()
 
 void Mesh::LoadMesh(const std::string& path)
 {
+	m_animator.Reset();
 	Importer.SetPropertyBool(AI_CONFIG_IMPORT_FBX_PRESERVE_PIVOTS, false);
 	m_scene = Importer.ReadFile(path.c_str(), aiProcess_Triangulate 
 											| aiProcess_GenSmoothNormals 
@@ -71,6 +72,7 @@ void Mesh::LoadMesh(const std::string& path)
 	m_inverseTrans = m_inverseTrans.Inverse();
 
 	InitMesh(path);
+	m_animator.Reset(m_scene);
 	BuildFirstAnimationFrameSkeleton();
 
 	MakeVAO();
@@ -149,165 +151,45 @@ void Mesh::BuildBindPoseSkeleton()
 	m_skeletonLines.SetLines(endpoints);
 }
 
-const aiNodeAnim* Mesh::FindAnimationChannel(const aiAnimation* animation,
-	const std::string& nodeName) const
+void Mesh::CollectSkeletonLines(const aiNode* node, bool hasParentBone,
+    const glm::vec3& parentBonePosition, std::vector<glm::vec3>& endpoints) const
 {
-	if (!animation)
-		return nullptr;
-
-	for (unsigned int i = 0; i < animation->mNumChannels; ++i)
-	{
-		const aiNodeAnim* channel = animation->mChannels[i];
-		if (channel && nodeName == channel->mNodeName.C_Str())
-			return channel;
-	}
-	return nullptr;
-}
-
-namespace
-{
-	aiVector3D SampleVectorKey(const aiVectorKey* keys, unsigned int keyCount,
-		double time, const aiVector3D& fallback)
-	{
-		if (!keys || keyCount == 0)
-			return fallback;
-		if (keyCount == 1 || time <= keys[0].mTime)
-			return keys[0].mValue;
-		if (time >= keys[keyCount - 1].mTime)
-			return keys[keyCount - 1].mValue;
-
-		unsigned int next = 1;
-		while (next < keyCount && time > keys[next].mTime)
-			++next;
-		const unsigned int previous = next - 1;
-		const double span = keys[next].mTime - keys[previous].mTime;
-		const float factor = span > 0.0
-			? static_cast<float>((time - keys[previous].mTime) / span)
-			: 0.0f;
-		return keys[previous].mValue
-			+ factor * (keys[next].mValue - keys[previous].mValue);
-	}
-
-	aiQuaternion SampleRotationKey(const aiQuatKey* keys, unsigned int keyCount,
-		double time, const aiQuaternion& fallback)
-	{
-		if (!keys || keyCount == 0)
-			return fallback;
-		if (keyCount == 1 || time <= keys[0].mTime)
-			return keys[0].mValue;
-		if (time >= keys[keyCount - 1].mTime)
-			return keys[keyCount - 1].mValue;
-
-		unsigned int next = 1;
-		while (next < keyCount && time > keys[next].mTime)
-			++next;
-		const unsigned int previous = next - 1;
-		const double span = keys[next].mTime - keys[previous].mTime;
-		const float factor = span > 0.0
-			? static_cast<float>((time - keys[previous].mTime) / span)
-			: 0.0f;
-		aiQuaternion result;
-		aiQuaternion::Interpolate(result, keys[previous].mValue, keys[next].mValue, factor);
-		return result.Normalize();
-	}
-}
-
-aiMatrix4x4 Mesh::SampleLocalTransform(const aiNode* node,
-	const aiNodeAnim* channel, double animationTime) const
-{
-	if (!channel)
-		return node->mTransformation;
-
-	aiVector3D defaultScale;
-	aiQuaternion defaultRotation;
-	aiVector3D defaultPosition;
-	node->mTransformation.Decompose(defaultScale, defaultRotation, defaultPosition);
-
-	const aiVector3D scale = SampleVectorKey(channel->mScalingKeys,
-		channel->mNumScalingKeys, animationTime, defaultScale);
-	const aiQuaternion rotation = SampleRotationKey(channel->mRotationKeys,
-		channel->mNumRotationKeys, animationTime, defaultRotation);
-	const aiVector3D position = SampleVectorKey(channel->mPositionKeys,
-		channel->mNumPositionKeys, animationTime, defaultPosition);
-	return aiMatrix4x4(scale, rotation, position);
-}
-
-void Mesh::CollectAnimatedPoseLines(const aiNode* node, const aiAnimation* animation,
-	double animationTime, const aiMatrix4x4& parentTransform,
-	bool hasParentBone, const glm::vec3& parentBonePosition,
-	std::vector<glm::vec3>& endpoints) const
-{
-	const std::string nodeName(node->mName.C_Str());
-	const aiNodeAnim* channel = FindAnimationChannel(animation, nodeName);
-	const aiMatrix4x4 localTransform = SampleLocalTransform(node, channel, animationTime);
-	const aiMatrix4x4 globalTransform = parentTransform * localTransform;
-	const aiMatrix4x4 meshTransform = m_inverseTrans * globalTransform;
-	const glm::vec3 nodePosition(meshTransform.a4, meshTransform.b4, meshTransform.c4);
-	const bool isBone = m_name_index.find(nodeName) != m_name_index.end();
-
-	if (isBone && hasParentBone)
-	{
-		endpoints.push_back(parentBonePosition);
-		endpoints.push_back(nodePosition);
-	}
-
-	const bool childHasParentBone = isBone || hasParentBone;
-	const glm::vec3 childParentPosition = isBone ? nodePosition : parentBonePosition;
-	for (unsigned int i = 0; i < node->mNumChildren; ++i)
-	{
-		CollectAnimatedPoseLines(node->mChildren[i], animation, animationTime,
-			globalTransform, childHasParentBone, childParentPosition, endpoints);
-	}
+    const std::string name(node->mName.C_Str());
+    const auto& transforms = m_animator.GetNodeTransforms();
+    const auto found = transforms.find(name);
+    if (found == transforms.end()) return;
+    const aiMatrix4x4& transform = found->second;
+    const glm::vec3 position(transform.a4, transform.b4, transform.c4);
+    const bool isBone = m_name_index.find(name) != m_name_index.end();
+    if (isBone && hasParentBone)
+    {
+        endpoints.push_back(parentBonePosition);
+        endpoints.push_back(position);
+    }
+    for (unsigned int i = 0; i < node->mNumChildren; ++i)
+        CollectSkeletonLines(node->mChildren[i], isBone || hasParentBone,
+            isBone ? position : parentBonePosition, endpoints);
 }
 
 void Mesh::BuildFirstAnimationFrameSkeleton()
 {
-	if (!m_scene || !m_scene->mRootNode || !m_scene->HasAnimations())
-	{
-		BuildBindPoseSkeleton();
-		return;
-	}
+    if (!m_scene || !m_scene->mRootNode || m_animator.GetAnimationCount() == 0)
+    {
+        BuildBindPoseSkeleton();
+        return;
+    }
+    m_animator.EvaluatePose(m_animator.GetFirstKeyTimeTicks());
+    std::vector<glm::vec3> endpoints;
+    CollectSkeletonLines(m_scene->mRootNode, false, glm::vec3(0.0f), endpoints);
+    PrintBoneCoords(endpoints);
+    m_skeletonLines.SetLines(endpoints);
+}
 
-	const unsigned int animationIndex = static_cast<unsigned int>(anim_num);
-	if (animationIndex >= m_scene->mNumAnimations)
-	{
-		BuildBindPoseSkeleton();
-		return;
-	}
-
-	const aiAnimation* animation = m_scene->mAnimations[animationIndex];
-	double firstKeyTime = 0.0;
-	bool foundKey = false;
-	for (unsigned int i = 0; i < animation->mNumChannels; ++i)
-	{
-		const aiNodeAnim* channel = animation->mChannels[i];
-		if (!channel)
-			continue;
-		const double times[] = {
-			channel->mNumPositionKeys ? channel->mPositionKeys[0].mTime : 0.0,
-			channel->mNumRotationKeys ? channel->mRotationKeys[0].mTime : 0.0,
-			channel->mNumScalingKeys ? channel->mScalingKeys[0].mTime : 0.0
-		};
-		const bool present[] = {
-			channel->mNumPositionKeys != 0,
-			channel->mNumRotationKeys != 0,
-			channel->mNumScalingKeys != 0
-		};
-		for (int keyType = 0; keyType < 3; ++keyType)
-		{
-			if (present[keyType] && (!foundKey || times[keyType] < firstKeyTime))
-			{
-				firstKeyTime = times[keyType];
-				foundKey = true;
-			}
-		}
-	}
-
-	std::vector<glm::vec3> endpoints;
-	CollectAnimatedPoseLines(m_scene->mRootNode, animation, firstKeyTime,
-		aiMatrix4x4(), false, glm::vec3(0.0f), endpoints);
-	PrintBoneCoords(endpoints);
-	m_skeletonLines.SetLines(endpoints);
+bool Mesh::SetAnimation(unsigned int index)
+{
+    if (!m_animator.SetAnimation(index)) return false;
+    BuildFirstAnimationFrameSkeleton();
+    return true;
 }
 
 void Mesh::PrintBoneCoords(std::vector<glm::vec3> endpoints) 
@@ -345,7 +227,7 @@ void Mesh::DrawSkeleton(ShaderProgram& shader, glm::mat4& worldProj, glm::mat4& 
 		glEnable(GL_DEPTH_TEST);
 }
 
-void Mesh::Draw(int programId, long double dt)
+void Mesh::Draw(int programId)
 {
 	glm::vec3 diffuseColor{0.7,0.7,0.5};
 	glm::vec3 specularColor{0.5,0.5,0.5};
