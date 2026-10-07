@@ -25,12 +25,14 @@ struct BoneData
     void AddBoneData(int _id, float _w)
     {
         int arr_size = sizeof(ids) / sizeof(ids[0]);
-        for (int i = 0; i < arr_size; i++) {
+        for (int i = 0; i < arr_size; i++)
+        {
             if (w[i] == 0.0) {
                 ids[i] = _id;
                 w[i] = _w;
                 return;
             }
+
         }
 
         assert(0);

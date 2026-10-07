@@ -6,7 +6,11 @@
 
 void Check(bool value, const char* message)
 {
-    if (!value) throw std::runtime_error(message);
+    if (!value)
+    {
+        throw std::runtime_error(message);
+    }
+
 }
 void Near(double actual, double expected, const char* message)
 {

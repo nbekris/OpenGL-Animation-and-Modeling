@@ -13,7 +13,10 @@ int main(int argc, char** argv)
 
 
     // Initialize glfw open a window
-    if (!glfwInit())  exit(EXIT_FAILURE);
+    if (!glfwInit())
+    {
+        exit(EXIT_FAILURE);
+    }
 
 
     glfwWindowHint(GLFW_RESIZABLE, 1);
@@ -22,7 +25,11 @@ int main(int argc, char** argv)
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
     glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, 0);
     scene.window = glfwCreateWindow(750, 750, "Graphics Framework", NULL, NULL);
-    if (!scene.window) { glfwTerminate();  exit(-1); }
+    if (!scene.window)
+    {
+        glfwTerminate();
+        exit(-1);
+    }
 
     glfwMakeContextCurrent(scene.window);
     glfwSwapInterval(1);

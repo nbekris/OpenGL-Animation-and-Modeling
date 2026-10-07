@@ -21,17 +21,26 @@ int main()
         const auto direct = q.ToMatrix();
         const auto transpose = QuaternionVariants::ToMatrixTranspose(q);
         for (int col = 0; col < 4; ++col)
+        {
             for (int row = 0; row < 4; ++row)
+            {
                 if (!std::isfinite(direct[col][row]) ||
                     !std::isfinite(transpose[col][row]) ||
                     std::abs(direct[col][row] - transpose[col][row]) > 1e-6f)
+                {
                     throw std::runtime_error("Matrix implementations disagree.");
+                }
+            }
+        }
+
     };
     check(Quaternion(1.0f, 0.0f, 0.0f, 0.0f));
     check(Quaternion(1.0f, 0.0f, 0.0f, 1.0f));
     check(Quaternion(0.0f, 1.0f, 0.0f, 0.0f));
     for (const auto& input : inputs)
+    {
         check(input);
+    }
 
     const auto direct = [&](std::size_t i)
     {

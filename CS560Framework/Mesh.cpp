@@ -92,9 +92,11 @@ glm::vec3 Mesh::GetBindPosePosition(const std::string& boneName) const
 	// nodes whose transforms are not applied to our flattened mesh vertices.
 	const auto bone = m_name_index.find(boneName);
 	if (bone == m_name_index.end() || bone->second >= static_cast<int>(m_boneInfo.size()))
+	{
 		// Might want to return an error here instead of 0,0,0
 		// since 0,0,0 can be mistaken for the origin.
 		return glm::vec3(0.0f);
+	}
 
 	aiMatrix4x4 boneToMesh = m_boneInfo[bone->second].OffsetMatrix;
 	boneToMesh.Inverse();
@@ -157,18 +159,27 @@ void Mesh::CollectSkeletonLines(const aiNode* node, bool hasParentBone,
     const std::string name(node->mName.C_Str());
     const auto& transforms = m_animator.GetNodeTransforms();
     const auto found = transforms.find(name);
-    if (found == transforms.end()) return;
+
+    if (found == transforms.end())
+    {
+        return;
+    }
+
     const aiMatrix4x4& transform = found->second;
     const glm::vec3 position(transform.a4, transform.b4, transform.c4);
     const bool isBone = m_name_index.find(name) != m_name_index.end();
+
     if (isBone && hasParentBone)
     {
         endpoints.push_back(parentBonePosition);
         endpoints.push_back(position);
     }
+
     for (unsigned int i = 0; i < node->mNumChildren; ++i)
+    {
         CollectSkeletonLines(node->mChildren[i], isBone || hasParentBone,
             isBone ? position : parentBonePosition, endpoints);
+    }
 }
 
 void Mesh::BuildFirstAnimationFrameSkeleton()
@@ -178,6 +189,7 @@ void Mesh::BuildFirstAnimationFrameSkeleton()
         BuildBindPoseSkeleton();
         return;
     }
+
     m_animator.EvaluatePose(m_animator.GetFirstKeyTimeTicks());
     std::vector<glm::vec3> endpoints;
     CollectSkeletonLines(m_scene->mRootNode, false, glm::vec3(0.0f), endpoints);
@@ -187,7 +199,11 @@ void Mesh::BuildFirstAnimationFrameSkeleton()
 
 bool Mesh::SetAnimation(unsigned int index)
 {
-    if (!m_animator.SetAnimation(index)) return false;
+    if (!m_animator.SetAnimation(index))
+    {
+        return false;
+    }
+
     BuildFirstAnimationFrameSkeleton();
     return true;
 }
@@ -224,7 +240,10 @@ void Mesh::DrawSkeleton(ShaderProgram& shader, glm::mat4& worldProj, glm::mat4& 
 	m_skeletonLines.Draw(shader, worldProj, worldView, modelTransform, skeletonColor);
 	glLineWidth(1.0f);
 	if (depthWasEnabled)
+	{
 		glEnable(GL_DEPTH_TEST);
+	}
+
 }
 
 void Mesh::Draw(int programId)
@@ -430,7 +449,9 @@ int Mesh::GetBoneId(const aiBone* b)
 
 	auto it = m_name_index.find(name);
 	if(it == m_name_index.end())
+	{
 		m_name_index[name] = (int)m_name_index.size();
+	}
 
 	return m_name_index[name];
 }

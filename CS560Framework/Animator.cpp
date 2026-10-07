@@ -10,7 +10,10 @@ void Animator::Reset(const aiScene* scene)
     m_nodeTransforms.clear();
     m_inverseRoot = aiMatrix4x4();
     if (scene && scene->mRootNode)
+    {
         m_inverseRoot = aiMatrix4x4(scene->mRootNode->mTransformation).Inverse();
+    }
+
 }
 
 const aiAnimation* Animator::GetAnimation() const
@@ -26,27 +29,39 @@ unsigned int Animator::GetAnimationCount() const
 
 std::string Animator::GetAnimationName(unsigned int index) const
 {
-    if (index >= GetAnimationCount()) return {};
+    if (index >= GetAnimationCount())
+    {
+        return {};
+    }
+
     const std::string name = m_scene->mAnimations[index]->mName.C_Str();
     return name.empty() ? "Animation " + std::to_string(index) : name;
 }
 
 bool Animator::SetAnimation(unsigned int index)
 {
-    if (index >= GetAnimationCount()) return false;
+    if (index >= GetAnimationCount())
+    {
+        return false;
+    }
+
     if (index != m_animationIndex)
     {
         m_animationIndex = index;
         m_playbackSeconds = 0.0;
         m_nodeTransforms.clear();
     }
+
     return true;
 }
 
 void Animator::Update(double deltaSeconds)
 {
     if (!m_playing || !GetAnimation() || !std::isfinite(deltaSeconds) || deltaSeconds <= 0.0)
+    {
         return;
+    }
+
     const aiAnimation* animation = GetAnimation();
     // Our fallback for files with an unspecified tick rate is 25 ticks/second.
     const double ticksPerSecond = animation->mTicksPerSecond > 0.0 ? animation->mTicksPerSecond : 25.0;
@@ -59,7 +74,11 @@ void Animator::Update(double deltaSeconds)
 double Animator::GetSampleTimeTicks() const
 {
     const aiAnimation* animation = GetAnimation();
-    if (!animation || animation->mDuration <= 0.0) return 0.0;
+    if (!animation || animation->mDuration <= 0.0)
+    {
+        return 0.0;
+    }
+
     const double ticksPerSecond = animation->mTicksPerSecond > 0.0 ? animation->mTicksPerSecond : 25.0;
     return std::fmod(m_playbackSeconds * ticksPerSecond, animation->mDuration);
 }
@@ -68,7 +87,10 @@ void Animator::EvaluatePose(double timeTicks)
 {
     m_nodeTransforms.clear();
     if (m_scene && m_scene->mRootNode)
+    {
         EvaluateNode(m_scene->mRootNode, aiMatrix4x4(), timeTicks);
+    }
+
 }
 
 void Animator::EvaluateNode(const aiNode* node, const aiMatrix4x4& parentTransform, double timeTicks)
@@ -78,35 +100,51 @@ void Animator::EvaluateNode(const aiNode* node, const aiMatrix4x4& parentTransfo
         FindAnimationChannel(GetAnimation(), name), timeTicks);
     m_nodeTransforms[name] = m_inverseRoot * global;
     for (unsigned int i = 0; i < node->mNumChildren; ++i)
+    {
         EvaluateNode(node->mChildren[i], global, timeTicks);
+    }
 }
 
 const aiNodeAnim* Animator::FindAnimationChannel(const aiAnimation* animation,
 	const std::string& nodeName) const
 {
 	if (!animation)
+	{
 		return nullptr;
+	}
 
 	for (unsigned int i = 0; i < animation->mNumChannels; ++i)
 	{
 		const aiNodeAnim* channel = animation->mChannels[i];
 		if (channel && nodeName == channel->mNodeName.C_Str())
+		{
 			return channel;
+		}
+
 	}
 	return nullptr;
 }
 
 namespace
 {
+	// Refactor
 	aiVector3D SampleVectorKey(const aiVectorKey* keys, unsigned int keyCount,
 		double time, const aiVector3D& fallback)
 	{
 		if (!keys || keyCount == 0)
+		{
 			return fallback;
+		}
+
 		if (keyCount == 1 || time <= keys[0].mTime)
+		{
 			return keys[0].mValue;
+		}
+
 		if (time >= keys[keyCount - 1].mTime)
+		{
 			return keys[keyCount - 1].mValue;
+		}
 
 		unsigned int next = 1;
 		while (next < keyCount && time > keys[next].mTime)
@@ -120,15 +158,24 @@ namespace
 			+ factor * (keys[next].mValue - keys[previous].mValue);
 	}
 
+	// Refactor
 	aiQuaternion SampleRotationKey(const aiQuatKey* keys, unsigned int keyCount,
 		double time, const aiQuaternion& fallback)
 	{
 		if (!keys || keyCount == 0)
+		{
 			return fallback;
+		}
+
 		if (keyCount == 1 || time <= keys[0].mTime)
+		{
 			return keys[0].mValue;
+		}
+
 		if (time >= keys[keyCount - 1].mTime)
+		{
 			return keys[keyCount - 1].mValue;
+		}
 
 		unsigned int next = 1;
 		while (next < keyCount && time > keys[next].mTime)
@@ -144,11 +191,14 @@ namespace
 	}
 }
 
+// Refactor
 aiMatrix4x4 Animator::SampleLocalTransform(const aiNode* node,
 	const aiNodeAnim* channel, double animationTime) const
 {
 	if (!channel)
+	{
 		return node->mTransformation;
+	}
 
 	aiVector3D defaultScale;
 	aiQuaternion defaultRotation;
@@ -164,18 +214,25 @@ aiMatrix4x4 Animator::SampleLocalTransform(const aiNode* node,
 	return aiMatrix4x4(scale, rotation, position);
 }
 
-
+// Refactor
 double Animator::GetFirstKeyTimeTicks() const
 {
     const aiAnimation* animation = GetAnimation();
-    if (!animation) return 0.0;
+    if (!animation)
+    {
+        return 0.0;
+    }
+
 	double firstKeyTime = 0.0;
 	bool foundKey = false;
 	for (unsigned int i = 0; i < animation->mNumChannels; ++i)
 	{
 		const aiNodeAnim* channel = animation->mChannels[i];
 		if (!channel)
+		{
 			continue;
+		}
+
 		const double times[] = {
 			channel->mNumPositionKeys ? channel->mPositionKeys[0].mTime : 0.0,
 			channel->mNumRotationKeys ? channel->mRotationKeys[0].mTime : 0.0,
@@ -193,6 +250,7 @@ double Animator::GetFirstKeyTimeTicks() const
 				firstKeyTime = times[keyType];
 				foundKey = true;
 			}
+
 		}
 	}
 

@@ -82,6 +82,7 @@ void ShaderProgram::AddShader(const char* fileName, GLenum type)
         printf("Compile log for %s:\n%s\n", fileName, log);
         delete [] log;
     }
+
 }
 
 // Link a shader program after all the shader files have been added
@@ -103,4 +104,5 @@ void ShaderProgram::LinkProgram()
         printf("Link log:\n%s\n", buffer);
         delete buffer;
     }
+
 }

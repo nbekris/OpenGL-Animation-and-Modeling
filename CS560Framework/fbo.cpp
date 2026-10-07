@@ -50,7 +50,9 @@ void FBO::CreateFBO(const int w, const int h)
     // Check for completeness/correctness
     int status = (int)glCheckFramebufferStatusEXT(GL_FRAMEBUFFER_EXT);
     if (status != int(GL_FRAMEBUFFER_COMPLETE_EXT))
+    {
         printf("FBO Error: %d\n", status);
+    }
 
     // Unbind the fbo until it's ready to be used
     glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, 0);

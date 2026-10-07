@@ -15,7 +15,7 @@ using namespace gl;
 #define GLM_FORCE_RADIANS
 #define GLM_SWIZZLE
 #include <glm/glm.hpp>
-#include <glm/ext.hpp>          
+#include <glm/ext.hpp>
 
 #include "framework.h"
 //#include "shapes.h"
@@ -23,7 +23,7 @@ using namespace gl;
 #include "transform.h"
 
 const float PI = 3.14159f;
-const float rad = PI/180.0f;    
+const float rad = PI/180.0f;
 
 glm::mat4 Identity;
 
@@ -58,7 +58,7 @@ void Scene::InitializeScene()
 
     key = 0;
     InitCamera();
- 
+
     glGenBuffers(1, &id);
     bindpoint = 1;
     glBindBufferBase(GL_UNIFORM_BUFFER, bindpoint, id);
@@ -108,7 +108,7 @@ void Scene::InitializeScene()
     model = new Mesh();
     model->LoadMesh("fbx/fbx/roman_D.fbx");
     model->GetAnimator().Play();
-    
+
     previousFrameTime = glfwGetTime();
 }
 
@@ -120,18 +120,24 @@ void Scene::DrawMenu()
 
     ImGui::Begin("Sample UI Box");
     ImGui::Text("sample text");
-    
+
     const char* models[] = { "Roman", "Viking" };
     const char* current_model = models[0];
-    if (ImGui::BeginCombo("Model", models[0])) 
+    if (ImGui::BeginCombo("Model", models[0]))
     {
         for (int n = 0; n < IM_ARRAYSIZE(models); n++)
         {
-            bool is_selected = (current_model == models[n]); 
+            bool is_selected = (current_model == models[n]);
             if (ImGui::Selectable(models[n], is_selected))
+            {
                 current_model = models[n];
+            }
+
             if (is_selected)
-                ImGui::SetItemDefaultFocus();   
+            {
+                ImGui::SetItemDefaultFocus();
+            }
+
         }
 
         ImGui::EndCombo();
@@ -140,9 +146,17 @@ void Scene::DrawMenu()
     Animator& animator = model->GetAnimator();
     if (ImGui::Button(animator.IsPlaying() ? "Pause" : "Play"))
     {
-        if (animator.IsPlaying()) animator.Pause();
-        else animator.Play();
+        if (animator.IsPlaying())
+        {
+            animator.Pause();
+        }
+
+        else
+        {
+            animator.Play();
+        }
     }
+
     ImGui::Text("Playback: %.3f seconds / %.3f ticks",
         animator.GetPlaybackSeconds(), animator.GetSampleTimeTicks());
 
@@ -157,20 +171,29 @@ void Scene::DrawMenu()
         {
             const bool selected = index == animator.GetAnimationIndex();
             const std::string name = animator.GetAnimationName(index);
+
             ImGui::PushID(static_cast<int>(index));
             if (ImGui::Selectable(name.c_str(), selected) && !selected)
+            {
                 model->SetAnimation(index);
-            if (selected) ImGui::SetItemDefaultFocus();
+            }
+
+            if (selected)
+            {
+                ImGui::SetItemDefaultFocus();
+            }
+
             ImGui::PopID();
         }
         ImGui::EndCombo();
     }
+
     ImGui::End();
 
 
     ImGui::Render();
     ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
-    
+
 }
 
 void Scene::BuildTransforms()
@@ -179,21 +202,44 @@ void Scene::BuildTransforms()
     float dist = (now-last_time)*speed;
     last_time = now;
     if (key == GLFW_KEY_KP_8)
+    {
         tr[1] -= dist;
+    }
+
     if (key == GLFW_KEY_KP_2)
+    {
         tr[1] += dist;
+    }
+
     if (key == GLFW_KEY_KP_6)
+    {
         tr[0] -= dist;
+    }
+
     if (key == GLFW_KEY_KP_4)
+    {
         tr[0] += dist;
+    }
+
     if (key == GLFW_KEY_KP_5)
+    {
         InitCamera();
+    }
+
     if (key == GLFW_KEY_KP_0)
+    {
         spin += dist*20.f;
+    }
+
     if (key == GLFW_KEY_KP_ADD)
+    {
         tr[2] = pow(tr[2], 1.0f / 1.01f);
+    }
+
     if (key == GLFW_KEY_KP_SUBTRACT)
+    {
         tr[2] = pow(tr[2], 1.01f);
+    }
 
 
     CHECKERROR;
@@ -210,7 +256,7 @@ void Scene::DrawScene()
     BuildTransforms();
 
     WorldInverse = glm::inverse(WorldView);
-    
+
 
     int loc, programId;
 
@@ -244,7 +290,7 @@ void Scene::DrawScene()
     gBuffer.UnbindFBO();
     gBufferProgram->UnuseShader();
 
- 
+
     glViewport(0, 0, width, height);
     glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
@@ -252,8 +298,8 @@ void Scene::DrawScene()
     ////////////PHONG LIGHTING////////////////////
     lightingProgram->UseShader();
     programId = lightingProgram->programId;
-    
-    
+
+
     loc = glGetUniformLocation(programId, "WorldProj");
     glUniformMatrix4fv(loc, 1, GL_FALSE, Pntr(WorldProj));
     loc = glGetUniformLocation(programId, "WorldView");
@@ -262,7 +308,7 @@ void Scene::DrawScene()
     glUniformMatrix4fv(loc, 1, GL_FALSE, Pntr(WorldInverse));
 
     loc = glGetUniformLocation(programId, "lightPos");
-    glUniform3fv(loc, 1, &(lightPos[0]));   
+    glUniform3fv(loc, 1, &(lightPos[0]));
     loc = glGetUniformLocation(programId, "lightCol");
     glUniform3fv(loc, 1, &(lightCol[0]));
 
@@ -272,7 +318,7 @@ void Scene::DrawScene()
     glUniform1i(loc, height);
     loc = glGetUniformLocation(programId, "eyePos");
     glUniform3fv(loc, 1, &(eye[0]));
-    
+
     CHECKERROR;
 
     gBuffer.BindTexture(0, lightingProgram->programId, "gBufferWorldPos", 0);
@@ -282,7 +328,7 @@ void Scene::DrawScene()
     CHECKERROR;
 
     quad->DrawVAO();
-    CHECKERROR; 
+    CHECKERROR;
 
     lightingProgram->UnuseShader();
 

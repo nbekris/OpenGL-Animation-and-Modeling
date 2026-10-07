@@ -35,7 +35,9 @@ void LineRenderer::Draw(ShaderProgram& shader, glm::mat4& worldProj, glm::mat4& 
     glm::mat4& modelTransform, const glm::vec3& color)
 {
     if (vertexCount == 0)
+    {
         return;
+    }
 
     shader.UseShader();
     const int programId = shader.programId;

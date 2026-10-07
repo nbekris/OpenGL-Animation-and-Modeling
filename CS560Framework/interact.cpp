@@ -31,18 +31,31 @@ std::string ACTION[3] = { "Release", "Press", "Repeat" };
 
 void Keyboard(GLFWwindow* window, int key, int scancode, int action, int mods)
 {
-    if (ImGui::GetIO().WantCaptureKeyboard) return;
+    if (ImGui::GetIO().WantCaptureKeyboard)
+    {
+        return;
+    }
 
-    if (action == GLFW_REPEAT) return; // Because keyboard autorepeat is evil.
+    if (action == GLFW_REPEAT)
+    {
+        return;
+    }
+
+    // Because keyboard autorepeat is evil.
 
     printf("Keyboard %c(%d);  S%d %s M%d\n", key, key, scancode, ACTION[action].c_str(), mods);
     fflush(stdout);
 
     // Track SHIFT/NO-SHIFT transitions. (The mods parameter should do this, but doesn't.)
     if (key == GLFW_KEY_LEFT_SHIFT || key == GLFW_KEY_RIGHT_SHIFT)
+    {
         shifted = !shifted;
+    }
+
     if (key == GLFW_KEY_LEFT_CONTROL || key == GLFW_KEY_RIGHT_CONTROL)
+    {
         control = !control;
+    }
 
     if (action == GLFW_PRESS) {
         switch (key) {
@@ -66,6 +79,7 @@ void Keyboard(GLFWwindow* window, int key, int scancode, int action, int mods)
         scene.key = 0;
         fflush(stdout);
     }
+
 }
 
 ////////////////////////////////////////////////////////////////////////
@@ -73,7 +87,10 @@ void Keyboard(GLFWwindow* window, int key, int scancode, int action, int mods)
 void MouseButton(GLFWwindow* window, int button, int action, int mods)
 {
 
-    if (ImGui::GetIO().WantCaptureMouse) return;
+    if (ImGui::GetIO().WantCaptureMouse)
+    {
+        return;
+    }
 
     glfwGetCursorPos(window, &mouseX, &mouseY);
     printf("MouseButton %d %d %d %f %f\n", button, action, mods, mouseX, mouseY);
@@ -92,13 +109,17 @@ void MouseButton(GLFWwindow* window, int button, int action, int mods)
     else if (button == GLFW_MOUSE_BUTTON_RIGHT) {
         rightDown = (action == GLFW_PRESS);
     }
+
 }
 
 ////////////////////////////////////////////////////////////////////////
 // Called by GLFW when a mouse moves (while a button is down)
 void MouseMotion(GLFWwindow* window, double x, double y)
 {
-    if (ImGui::GetIO().WantCaptureMouse) return;
+    if (ImGui::GetIO().WantCaptureMouse)
+    {
+        return;
+    }
 
     // @@ Catch any mouse movement that occurs while any button is
     // down.  It is not reported here *which* button is down, but you
@@ -135,7 +156,10 @@ void MouseMotion(GLFWwindow* window, double x, double y)
 
 void Scroll(GLFWwindow* window, double x, double y)
 {
-    if (ImGui::GetIO().WantCaptureMouse)  return;
+    if (ImGui::GetIO().WantCaptureMouse)
+    {
+        return;
+    }
 
     printf("Scroll %f %f\n", x, y);
 
@@ -164,6 +188,7 @@ void Scroll(GLFWwindow* window, double x, double y)
     else if (y < 0.0) {
         scene.tr[2] = pow(scene.tr[2], 1.02f);
     }
+
 }
 
 void InitInteraction()

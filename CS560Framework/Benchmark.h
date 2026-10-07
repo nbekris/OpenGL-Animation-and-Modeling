@@ -44,18 +44,24 @@ public:
                       const Options& options)
     {
         if (options.iterations == 0 || options.repetitions == 0)
+        {
             throw std::invalid_argument("Benchmark iterations and repetitions must be positive.");
+        }
 
         Result result{name, options.iterations, {}, 0.0, 0.0};
         result.nanosecondsPerCall.reserve(options.repetitions);
         for (std::size_t i = 0; i < options.warmupIterations; ++i)
+        {
             operation(i);
+        }
 
         for (std::size_t sample = 0; sample < options.repetitions; ++sample)
         {
             const auto start = std::chrono::steady_clock::now();
             for (std::size_t i = 0; i < options.iterations; ++i)
+            {
                 operation(i);
+            }
             const auto end = std::chrono::steady_clock::now();
             const double ns = std::chrono::duration<double, std::nano>(end - start).count();
             result.nanosecondsPerCall.push_back(ns / options.iterations);
@@ -85,6 +91,8 @@ public:
         const volatile unsigned char* bytes =
             reinterpret_cast<const volatile unsigned char*>(&value);
         for (std::size_t i = 0; i < sizeof(T); ++i)
+        {
             (void)bytes[i];
+        }
     }
 };

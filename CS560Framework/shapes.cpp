@@ -124,15 +124,20 @@ void Shape::ComputeSize()
 	minP = (Pnt[0]).xyz();
 	maxP = (Pnt[0]).xyz();
 	for (std::vector<glm::vec4>::iterator p = Pnt.begin(); p < Pnt.end(); p++)
-		for (int c = 0; c < 3; c++) {
+	{
+		for (int c = 0; c < 3; c++)
+		{
 			minP[c] = std::min(minP[c], (*p)[c]);
 			maxP[c] = std::max(maxP[c], (*p)[c]);
 		}
+	}
 
 	center = (maxP + minP) / 2.0f;
 	size = 0.0;
 	for (int c = 0; c < 3; c++)
+	{
 		size = std::max(size, (maxP[c] - minP[c]) / 2.0f);
+	}
 
 	float s = 1.0f / size;
 	modelTr = Scale(s, s, s) * Translate(-center[0], -center[1], -center[2]);
@@ -161,9 +166,11 @@ Quad::Quad(const int n)
 	shininess = 120.0;
 
 	float r = 1.0;
-	for (int i = 0; i <= n; i++) {
+	for (int i = 0; i <= n; i++)
+	{
 		float s = i / float(n);
-		for (int j = 0; j <= n; j++) {
+		for (int j = 0; j <= n; j++)
+		{
 			float t = j / float(n);
 			Pnt.push_back(glm::vec4(s * 2.0 * r - r, t * 2.0 * r - r, 0.0, 1.0));
 			Nrm.push_back(glm::vec3(0.0, 0.0, 1.0));
@@ -176,6 +183,7 @@ Quad::Quad(const int n)
 					(i) * (n + 1) + (j),
 					(i) * (n + 1) + (j - 1));
 			}
+
 		}
 	}
 
