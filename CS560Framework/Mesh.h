@@ -1,9 +1,11 @@
 #pragma once
 
+#include <assimp/scene.h>
 #include <map>
 #include <vector>
 #include "LineRenderer.h"
 #include "Animator.h"
+#include "AnimationData.h"
 #include "texture.h"
 #include "shapes.h"
 
@@ -42,10 +44,10 @@ struct BoneData
 //Bone information for transform
 struct BoneInfo
 {
-    aiMatrix4x4 OffsetMatrix;
-    aiMatrix4x4 FinalTransformation;
+    glm::mat4 OffsetMatrix{1.0f};
+    glm::mat4 FinalTransformation{1.0f};
 
-    BoneInfo(const aiMatrix4x4& Offset)
+    BoneInfo(const glm::mat4& Offset)
     {
         OffsetMatrix = Offset;
     }
@@ -64,29 +66,36 @@ public:
     void MakeVAO();
 
     Animator& GetAnimator() { return m_animator; }
+    const AnimationData& GetAnimationData() const { return m_animationData; }
     bool SetAnimation(unsigned int index);
+    // Refresh line endpoints from the pose already evaluated by the frame update.
+    void UpdateSkeletonPose();
 private:
 
 #define MAX_NUM_BONES_PER_VERTEX 4
 
-    void InitMesh(const std::string& path);
-    void InitBone(const aiMesh* mesh, int index);
-    int GetBoneId(const aiBone* b);
+    void InitMesh(const aiScene* scene);
+    void InitBone(const aiMesh* mesh, const std::vector<SkeletonBone>& bones, int index);
+    int GetBoneId(const std::string& name);
     void BuildBindPoseSkeleton();
     void BuildFirstAnimationFrameSkeleton();
     void PrintBoneCoords(std::vector<glm::vec3> endpoints);
-    void CollectBindPoseLines(const aiNode* node, const aiMatrix4x4& parentTransform,
+    void CollectBindPoseLines(const SkeletonNode* node,
         bool hasParentBone, const std::string& parentBoneName,
         std::vector<glm::vec3>& endpoints) const;
     glm::vec3 GetBindPosePosition(const std::string& boneName) const;
-    void CollectSkeletonLines(const aiNode* node, bool hasParentBone,
+    void CollectSkeletonLines(const SkeletonNode* node, bool hasParentBone,
         const glm::vec3& parentBonePosition, std::vector<glm::vec3>& endpoints) const;
     glm::mat4 GetModelTransform() const;
 
     GLuint m_vao = 0;
 
-	Assimp::Importer Importer;
-	const aiScene* m_scene = NULL;
+    struct DrawRange
+    {
+        unsigned int vertexCount;
+        unsigned int indexCount;
+    };
+    std::vector<DrawRange> m_drawRanges;
 
 	std::vector<glm::vec4> m_pnt;
 	std::vector<glm::vec3> m_norm;
@@ -96,9 +105,9 @@ private:
     std::vector<BoneData> m_bones;
     std::vector<BoneInfo> m_boneInfo;
     Animator m_animator;
+    AnimationData m_animationData;
     LineRenderer m_skeletonLines;
 
-    aiMatrix4x4 m_inverseTrans;
     std::map<std::string, int> m_name_index;
 
 };

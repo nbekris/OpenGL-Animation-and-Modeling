@@ -22,8 +22,16 @@ void LineRenderer::SetLines(const std::vector<glm::vec3>& endpoints)
 
     glBindVertexArray(vao);
     glBindBuffer(GL_ARRAY_BUFFER, vbo);
-    glBufferData(GL_ARRAY_BUFFER, vertexCount * sizeof(glm::vec3),
-        vertexCount > 0 ? endpoints.data() : nullptr, GL_DYNAMIC_DRAW);
+    // Reuse storage while the skeleton topology stays the same.
+    if (vertexCount > vertexCapacity)
+    {
+        vertexCapacity = vertexCount;
+        glBufferData(GL_ARRAY_BUFFER, vertexCapacity * sizeof(glm::vec3), nullptr, GL_DYNAMIC_DRAW);
+    }
+    if (vertexCount > 0)
+    {
+        glBufferSubData(GL_ARRAY_BUFFER, 0, vertexCount * sizeof(glm::vec3), endpoints.data());
+    }
     glEnableVertexAttribArray(0);
     // The shader takes a vec4; OpenGL supplies 1.0 for its unspecified w component.
     glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(glm::vec3), nullptr);

@@ -51,7 +51,43 @@ VQS VQS::operator*(const VQS& rhs) const
 	return VQS(uptv, pq, ts);
 }
 
-VQS VQS::Interpolate(const VQS& a, const VQS& b, float t)
+VQS VQS::Interpolate(const VQS& previous, const VQS& start,
+    const VQS& end, const VQS& next, float t)
 {
-	return VQS();
+    return Interpolate(previous, start, end, next, t, t, t);
+}
+
+VQS VQS::Interpolate(const VQS& previous, const VQS& start,
+    const VQS& end, const VQS& next, float translationT, float rotationT, float scaleT)
+{
+    const glm::vec3 translation = BezierTranslation(previous._translation,
+        start._translation, end._translation, next._translation, translationT);
+
+    // Slerp modifies its arguments; preserve the source keyframes.
+    Quaternion startRotation = start._rotation;
+    Quaternion endRotation = end._rotation;
+    const Quaternion rotation = start._rotation.Slerp(startRotation, endRotation, rotationT);
+
+    const float scale = (1.0f - scaleT) * start._scale + scaleT * end._scale;
+    return VQS(translation, rotation, scale);
+}
+
+glm::vec3 VQS::BezierTranslation(const glm::vec3& previous, const glm::vec3& start,
+	const glm::vec3& end, const glm::vec3& next, float u)
+{
+	// Insert a_i and b_(i+1) using the neighboring-keyframe rule.
+	const glm::vec3 a = start + (end - previous) * 0.5f;
+	const glm::vec3 b = end - (next - start) * 0.5f;
+
+	// Equation Q: interpolate the four Bezier controls.
+	const glm::vec3 q0 = start + (a - start) * u;
+	const glm::vec3 q1 = a + (b - a) * u;
+	const glm::vec3 q2 = b + (end - b) * u;
+
+	// Equation R: interpolate the three first-level results.
+	const glm::vec3 r0 = q0 + (q1 - q0) * u;
+	const glm::vec3 r1 = q1 + (q2 - q1) * u;
+
+	// Equation S: return the position on the curve.
+	return r0 + (r1 - r0) * u;
 }

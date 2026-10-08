@@ -7,7 +7,7 @@
 using namespace gl;
 
 #pragma warning(disable: 4190)
-#include <glu.h>  
+#include <glu.h>
 
 #define CHECKERROR {GLenum err = glGetError(); if (err != GL_NO_ERROR) { fprintf(stderr, "OpenGL error (at line shapes.cpp:%d): %s\n", __LINE__, gluErrorString(err)); exit(-1);} }
 
@@ -19,31 +19,9 @@ using namespace gl;
 #include <iostream>
 
 #include "Mesh.h"
+#include <assimp/Importer.hpp>
 #include "transform.h"
 #include "shader.h"
-
-glm::mat4 convert(const aiMatrix4x4& m)
-{
-	glm::mat4 res;
-
-	res[0][0] = m.a1; res[0][1] = m.b1; res[0][2] = m.c1; res[0][3] = m.d1;
-	res[1][0] = m.a2; res[1][1] = m.b2; res[1][2] = m.c2; res[1][3] = m.d2;
-	res[2][0] = m.a3; res[2][1] = m.b3; res[2][2] = m.c3; res[2][3] = m.d3;
-	res[3][0] = m.a4; res[3][1] = m.b4; res[3][2] = m.c4; res[3][3] = m.d4;
-	return res;
-}
-
-glm::mat4 convert(const aiMatrix3x3& m)
-{
-	glm::mat4 res;
-	res[0][0] = m.a1; res[0][1] = m.a2; res[0][2] = m.a3; res[0][3] = 0.0;
-	res[1][0] = m.b1; res[1][1] = m.b2; res[1][2] = m.b3; res[1][3] = 0.0;
-	res[2][0] = m.c1; res[2][1] = m.c2; res[2][2] = m.c3; res[2][3] = 0.0;
-	res[3][0] = 0.0; res[3][1] =0.0; res[3][2] = 0.0; res[3][3] = 1.0;
-	return res;
-}
-
-
 
 Mesh::Mesh()
 {
@@ -56,23 +34,29 @@ Mesh::~Mesh()
 void Mesh::LoadMesh(const std::string& path)
 {
 	m_animator.Reset();
-	Importer.SetPropertyBool(AI_CONFIG_IMPORT_FBX_PRESERVE_PIVOTS, false);
-	m_scene = Importer.ReadFile(path.c_str(), aiProcess_Triangulate 
-											| aiProcess_GenSmoothNormals 
-											| aiProcess_FlipUVs 
+	m_animationData = AnimationData();
+	Assimp::Importer importer;
+	importer.SetPropertyBool(AI_CONFIG_IMPORT_FBX_PRESERVE_PIVOTS, false);
+	const aiScene* scene = importer.ReadFile(path.c_str(), aiProcess_Triangulate
+											| aiProcess_GenSmoothNormals
+											| aiProcess_FlipUVs
 											| aiProcess_JoinIdenticalVertices);
-	if (!m_scene)
+	if (!scene)
 	{
-		printf("Error parsing '%s': '%s'\n", path.c_str(), Importer.GetErrorString());
+		printf("Error parsing '%s': '%s'\n", path.c_str(), importer.GetErrorString());
 		return;
 	}
 
-	
-	m_inverseTrans = m_scene->mRootNode->mTransformation;
-	m_inverseTrans = m_inverseTrans.Inverse();
 
-	InitMesh(path);
-	m_animator.Reset(m_scene);
+	m_animationData = ImportAnimationData(scene);
+
+
+	m_pnt.clear(); m_norm.clear(); m_tex.clear(); m_tan.clear();
+	m_indices.clear(); m_bones.clear(); m_boneInfo.clear();
+	m_name_index.clear(); m_drawRanges.clear();
+	InitMesh(scene);
+	importer.FreeScene();
+	m_animator.Reset(&m_animationData);
 	BuildFirstAnimationFrameSkeleton();
 
 	MakeVAO();
@@ -98,22 +82,15 @@ glm::vec3 Mesh::GetBindPosePosition(const std::string& boneName) const
 		return glm::vec3(0.0f);
 	}
 
-	aiMatrix4x4 boneToMesh = m_boneInfo[bone->second].OffsetMatrix;
-	boneToMesh.Inverse();
-	return glm::vec3(boneToMesh.a4, boneToMesh.b4, boneToMesh.c4);
+	const glm::mat4 boneToMesh = glm::inverse(m_boneInfo[bone->second].OffsetMatrix);
+	return glm::vec3(boneToMesh[3]);
 }
 
-void Mesh::CollectBindPoseLines(const aiNode* node, const aiMatrix4x4& parentTransform,
+void Mesh::CollectBindPoseLines(const SkeletonNode* node,
 	bool hasParentBone, const std::string& parentBoneName,
 	std::vector<glm::vec3>& endpoints) const
 {
-	// This global transform variable and transform accumulation is not actually needed.
-	// GetBindPosePosition uses offset matrix from Assimp to find line endpoints.
-	// Leaving for now since we will need this most likely for animating.
-	const aiMatrix4x4 globalTransform = parentTransform * node->mTransformation;
-	const std::string nodeName(node->mName.C_Str());
-	// Might want to take another look at this since I think this might be redundant logic
-	// if there is another location where we figure bone names.
+	const std::string& nodeName = node->name;
 	const bool isBone = m_name_index.find(nodeName) != m_name_index.end();
 
 	if (isBone && hasParentBone)
@@ -124,11 +101,10 @@ void Mesh::CollectBindPoseLines(const aiNode* node, const aiMatrix4x4& parentTra
 
 	const bool childHasParentBone = isBone || hasParentBone;
 	const std::string& childParentBoneName = isBone ? nodeName : parentBoneName;
-	for (unsigned int i = 0; i < node->mNumChildren; ++i)
+	for (unsigned int i = 0; i < node->children.size(); ++i)
 	{
 		CollectBindPoseLines(
-			node->mChildren[i], 
-			globalTransform, 
+			&node->children[i],
 			childHasParentBone,
 			childParentBoneName,
 			endpoints);
@@ -138,14 +114,9 @@ void Mesh::CollectBindPoseLines(const aiNode* node, const aiMatrix4x4& parentTra
 void Mesh::BuildBindPoseSkeleton()
 {
 	std::vector<glm::vec3> endpoints;
-	if (m_scene && m_scene->mRootNode)
+	if (m_animationData.hasRoot)
 	{
-		const aiMatrix4x4 identity(
-			1.0, 0.0, 0.0, 0.0,
-			0.0, 1.0, 0.0, 0.0,
-			0.0, 0.0, 1.0, 0.0,
-			0.0, 0.0, 0.0, 1.0);
-		CollectBindPoseLines(m_scene->mRootNode, identity, false, std::string(), endpoints);
+		CollectBindPoseLines(&m_animationData.root, false, std::string(), endpoints);
 	}
 
 	PrintBoneCoords(endpoints);
@@ -153,10 +124,10 @@ void Mesh::BuildBindPoseSkeleton()
 	m_skeletonLines.SetLines(endpoints);
 }
 
-void Mesh::CollectSkeletonLines(const aiNode* node, bool hasParentBone,
+void Mesh::CollectSkeletonLines(const SkeletonNode* node, bool hasParentBone,
     const glm::vec3& parentBonePosition, std::vector<glm::vec3>& endpoints) const
 {
-    const std::string name(node->mName.C_Str());
+    const std::string name(node->name);
     const auto& transforms = m_animator.GetNodeTransforms();
     const auto found = transforms.find(name);
 
@@ -165,8 +136,8 @@ void Mesh::CollectSkeletonLines(const aiNode* node, bool hasParentBone,
         return;
     }
 
-    const aiMatrix4x4& transform = found->second;
-    const glm::vec3 position(transform.a4, transform.b4, transform.c4);
+    const glm::mat4& transform = found->second;
+    const glm::vec3 position(transform[3]);
     const bool isBone = m_name_index.find(name) != m_name_index.end();
 
     if (isBone && hasParentBone)
@@ -175,16 +146,16 @@ void Mesh::CollectSkeletonLines(const aiNode* node, bool hasParentBone,
         endpoints.push_back(position);
     }
 
-    for (unsigned int i = 0; i < node->mNumChildren; ++i)
+    for (unsigned int i = 0; i < node->children.size(); ++i)
     {
-        CollectSkeletonLines(node->mChildren[i], isBone || hasParentBone,
+        CollectSkeletonLines(&node->children[i], isBone || hasParentBone,
             isBone ? position : parentBonePosition, endpoints);
     }
 }
 
 void Mesh::BuildFirstAnimationFrameSkeleton()
 {
-    if (!m_scene || !m_scene->mRootNode || m_animator.GetAnimationCount() == 0)
+    if (!m_animationData.hasRoot || m_animator.GetAnimationCount() == 0)
     {
         BuildBindPoseSkeleton();
         return;
@@ -192,11 +163,28 @@ void Mesh::BuildFirstAnimationFrameSkeleton()
 
     m_animator.EvaluatePose(m_animator.GetFirstKeyTimeTicks());
     std::vector<glm::vec3> endpoints;
-    CollectSkeletonLines(m_scene->mRootNode, false, glm::vec3(0.0f), endpoints);
+    CollectSkeletonLines(&m_animationData.root, false, glm::vec3(0.0f), endpoints);
     PrintBoneCoords(endpoints);
     m_skeletonLines.SetLines(endpoints);
 }
 
+void Mesh::UpdateSkeletonPose()
+{
+    // Models without clips keep the bind-pose lines built at load time.
+    if (m_animator.GetAnimationCount() == 0)
+    {
+        return;
+    }
+
+    std::vector<glm::vec3> endpoints;
+    if (m_animationData.hasRoot)
+    {
+        // The animator includes helper-node transforms; only actual bones
+        // become endpoints, connected to their nearest ancestor bone.
+        CollectSkeletonLines(&m_animationData.root, false, glm::vec3(0.0f), endpoints);
+    }
+    m_skeletonLines.SetLines(endpoints);
+}
 bool Mesh::SetAnimation(unsigned int index)
 {
     if (!m_animator.SetAnimation(index))
@@ -208,7 +196,7 @@ bool Mesh::SetAnimation(unsigned int index)
     return true;
 }
 
-void Mesh::PrintBoneCoords(std::vector<glm::vec3> endpoints) 
+void Mesh::PrintBoneCoords(std::vector<glm::vec3> endpoints)
 {
 	// Print once at load time so the sampled skeleton can be inspected without
 	// flooding the console every frame from DrawSkeleton().
@@ -252,11 +240,14 @@ void Mesh::Draw(int programId)
 	glm::vec3 specularColor{0.5,0.5,0.5};
 	float shininess = 1.0f;
 
-	aiMatrix4x4 Identity(1.0, 0.0, 0.0, 0.0,
-						 0.0, 1.0, 0.0, 0.0,
-						 0.0, 0.0, 1.0, 0.0,
-						 0.0, 0.0, 0.0, 1.0);
-
+    const auto& pose = m_animator.GetNodeTransforms();
+    for (const auto& bone : m_name_index)
+    {
+        const auto node = pose.find(bone.first);
+        auto& info = m_boneInfo[bone.second];
+        info.FinalTransformation = node != pose.end()
+            ? node->second * info.OffsetMatrix : glm::mat4(1.0f);
+    }
 	CHECKERROR;
 	glBindVertexArray(m_vao);
 	CHECKERROR;
@@ -266,20 +257,16 @@ void Mesh::Draw(int programId)
 	{
 		std::string name = "gBones[" + std::to_string(i) + "]";
 		int loc = glGetUniformLocation(programId, name.c_str());
-		
-		
-		glUniformMatrix4fv(loc, 1, GL_TRUE, &m_boneInfo[i].FinalTransformation[0][0]);
+
+
+		glUniformMatrix4fv(loc, 1, GL_FALSE, &m_boneInfo[i].FinalTransformation[0][0]);
 		CHECKERROR;
 	}
 
 	int vertices = 0;
 	int indices = 0;
-	for (unsigned int i = 0; i < m_scene->mNumMeshes; ++i)
+	for (const auto& range : m_drawRanges)
 	{
-		int matIndex = m_scene->mMeshes[i]->mMaterialIndex;
-
-		//m_diffuse[matIndex]->BindTexture(0, programId, "diffuseTex");
-
 		int loc = glGetUniformLocation(programId, "diffuse");
 		glUniform3fv(loc, 1, &diffuseColor[0]);
 
@@ -298,11 +285,11 @@ void Mesh::Draw(int programId)
 		loc = glGetUniformLocation(programId, "NormalTr");
 		glUniformMatrix4fv(loc, 1, GL_FALSE, Pntr(inv));
 
-		int curr_indices = m_scene->mMeshes[i]->mNumFaces * 3;
+		const unsigned int curr_indices = range.indexCount;
 		glDrawElementsBaseVertex(GL_TRIANGLES, curr_indices, GL_UNSIGNED_INT,
 								(void*)(sizeof(unsigned int) * indices), vertices);
 
-		vertices += m_scene->mMeshes[i]->mNumVertices;
+		vertices += range.vertexCount;
 		indices += curr_indices;
 	}
 	CHECKERROR;
@@ -376,14 +363,14 @@ void Mesh::MakeVAO()
 	glBindVertexArray(0);
 }
 
-void Mesh::InitMesh(const std::string& path)
+void Mesh::InitMesh(const aiScene* scene)
 {
 	int num_vertices = 0;
 	//load meshes
-	for (unsigned int i = 0; i < m_scene->mNumMeshes; ++i)
+	for (unsigned int i = 0; i < scene->mNumMeshes; ++i)
 	{
-		const aiMesh* m = m_scene->mMeshes[i];
-		
+		const aiMesh* m = scene->mMeshes[i];
+
 		//individual mesh
 		for (unsigned int j = 0; j < m->mNumVertices; ++j)
 		{
@@ -408,7 +395,8 @@ void Mesh::InitMesh(const std::string& path)
 			m_bones.push_back(BoneData());
 		}
 
-		InitBone(m, num_vertices);
+		InitBone(m, m_animationData.meshBones[i], num_vertices);
+		m_drawRanges.push_back({m->mNumVertices, m->mNumFaces * 3});
 
 		for (unsigned int j = 0; j < m->mNumFaces; ++j)
 		{
@@ -423,17 +411,17 @@ void Mesh::InitMesh(const std::string& path)
 	}
 }
 
-void Mesh::InitBone(const aiMesh* mesh, int index)
+void Mesh::InitBone(const aiMesh* mesh, const std::vector<SkeletonBone>& bones, int index)
 {
 	for (unsigned int i = 0; i < mesh->mNumBones; ++i)
 	{
 		const aiBone* b = mesh->mBones[i];
-		int bone_id = GetBoneId(b);
+		int bone_id = GetBoneId(bones[i].name);
 		if (bone_id == m_boneInfo.size()) {
-			BoneInfo bi(b->mOffsetMatrix);
+			BoneInfo bi(bones[i].offsetMatrix);
 			m_boneInfo.push_back(bi);
 		}
-		
+
 		for (unsigned int j = 0; j < b->mNumWeights; ++j)
 		{
 			const aiVertexWeight& wt = b->mWeights[j];
@@ -443,9 +431,9 @@ void Mesh::InitBone(const aiMesh* mesh, int index)
 	}
 }
 
-int Mesh::GetBoneId(const aiBone* b)
+int Mesh::GetBoneId(const std::string& name)
 {
-	std::string name(b->mName.C_Str());
+
 
 	auto it = m_name_index.find(name);
 	if(it == m_name_index.end())

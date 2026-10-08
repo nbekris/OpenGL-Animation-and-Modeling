@@ -107,7 +107,11 @@ void Scene::InitializeScene()
 
     model = new Mesh();
     model->LoadMesh("fbx/fbx/roman_D.fbx");
-    model->GetAnimator().Play();
+    // Start only after a valid clip has been selected.
+    if (model->SetAnimation(0))
+    {
+        model->GetAnimator().Play();
+    }
 
     previousFrameTime = glfwGetTime();
 }
@@ -144,6 +148,9 @@ void Scene::DrawMenu()
     }
 
     Animator& animator = model->GetAnimator();
+    const bool hasAnimations = animator.GetAnimationCount() > 0;
+    ImGui::BeginDisabled(!hasAnimations);
+
     if (ImGui::Button(animator.IsPlaying() ? "Pause" : "Play"))
     {
         if (animator.IsPlaying())
@@ -157,6 +164,12 @@ void Scene::DrawMenu()
         }
     }
 
+    ImGui::EndDisabled();
+    if (!hasAnimations)
+    {
+        ImGui::TextDisabled("This model has no animation clips.");
+    }
+
     ImGui::Text("Playback: %.3f seconds / %.3f ticks",
         animator.GetPlaybackSeconds(), animator.GetSampleTimeTicks());
 
@@ -165,6 +178,7 @@ void Scene::DrawMenu()
     ImGui::Checkbox("Draw Mesh", &mesh);
 
     const std::string selectedName = animator.GetAnimationName(animator.GetAnimationIndex());
+    ImGui::BeginDisabled(!hasAnimations);
     if (ImGui::BeginCombo("Animation", selectedName.empty() ? "No animations" : selectedName.c_str()))
     {
         for (unsigned int index = 0; index < animator.GetAnimationCount(); ++index)
@@ -175,7 +189,10 @@ void Scene::DrawMenu()
             ImGui::PushID(static_cast<int>(index));
             if (ImGui::Selectable(name.c_str(), selected) && !selected)
             {
-                model->SetAnimation(index);
+                if (model->SetAnimation(index))
+                {
+                    animator.Play();
+                }
             }
 
             if (selected)
@@ -188,6 +205,7 @@ void Scene::DrawMenu()
         ImGui::EndCombo();
     }
 
+    ImGui::EndDisabled();
     ImGui::End();
 
 
@@ -280,7 +298,12 @@ void Scene::DrawScene()
     const double now = glfwGetTime();
     const double deltaSeconds = now - previousFrameTime;
     previousFrameTime = now;
-    model->GetAnimator().Update(deltaSeconds);
+
+    Animator& animator = model->GetAnimator();
+    animator.Update(deltaSeconds);
+    // Evaluate even while paused so the current playback position defines the pose.
+    animator.EvaluatePose(animator.GetSampleTimeTicks());
+    model->UpdateSkeletonPose();
     if (mesh)
     {
         model->Draw(programId);

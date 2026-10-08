@@ -20,11 +20,12 @@
       <LanguageStandard>stdcpp14</LanguageStandard><ExceptionHandling>Sync</ExceptionHandling>
       <!-- Match the bundled Assimp DLL's runtime when destroying synthetic scenes. -->
       <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
-      <AdditionalIncludeDirectories>$(MSBuildProjectDirectory)\..\CS560Framework;$(MSBuildProjectDirectory)\..\CS560Framework\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(MSBuildProjectDirectory)\..\CS560Framework;$(MSBuildProjectDirectory)\..\CS560Framework\include;$(MSBuildProjectDirectory)\..\CS560Framework\include\glm;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link><SubSystem>Console</SubSystem><AdditionalDependencies>$(MSBuildProjectDirectory)\..\CS560Framework\libs\assimp\assimp-vc143-mt.lib;%(AdditionalDependencies)</AdditionalDependencies></Link>
   </ItemDefinitionGroup>
-  <ItemGroup><ClCompile Include="AnimatorTests.cpp" /><ClCompile Include="..\CS560Framework\Animator.cpp" /></ItemGroup>
+  <ItemGroup><ClCompile Include="AnimatorTests.cpp" /><ClCompile Include="..\CS560Framework\Animator.cpp" /><ClCompile Include="..\CS560Framework\VQS.cpp" /><ClCompile Include="..\CS560Framework\Quaternion.cpp" /></ItemGroup>
+  <ItemGroup><ClCompile Include="..\CS560Framework\AnimationData.cpp" /></ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <Target Name="CopyAssimp" AfterTargets="Build">
     <Copy SourceFiles="$(MSBuildProjectDirectory)\..\CS560Framework\assimp-vc143-mt.dll" DestinationFolder="$(OutDir)" SkipUnchangedFiles="true" />

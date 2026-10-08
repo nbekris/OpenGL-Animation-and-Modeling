@@ -19,4 +19,5 @@ private:
     unsigned int vao = 0;
     unsigned int vbo = 0;
     int vertexCount = 0;
+    int vertexCapacity = 0;
 };

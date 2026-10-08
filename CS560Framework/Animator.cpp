@@ -1,30 +1,25 @@
 #include "Animator.h"
+#include "VQS.h"
 #include <cmath>
 
-void Animator::Reset(const aiScene* scene)
+void Animator::Reset(const AnimationData* data)
 {
-    m_scene = scene;
+    m_data = data;
     m_animationIndex = 0;
     m_playbackSeconds = 0.0;
     m_playing = false;
     m_nodeTransforms.clear();
-    m_inverseRoot = aiMatrix4x4();
-    if (scene && scene->mRootNode)
-    {
-        m_inverseRoot = aiMatrix4x4(scene->mRootNode->mTransformation).Inverse();
-    }
-
 }
 
-const aiAnimation* Animator::GetAnimation() const
+const AnimationClip* Animator::GetAnimation() const
 {
-    return m_scene && m_animationIndex < m_scene->mNumAnimations
-        ? m_scene->mAnimations[m_animationIndex] : nullptr;
+    return m_data && m_animationIndex < m_data->clips.size()
+        ? &m_data->clips[m_animationIndex] : nullptr;
 }
 
 unsigned int Animator::GetAnimationCount() const
 {
-    return m_scene ? m_scene->mNumAnimations : 0;
+    return m_data ? static_cast<unsigned int>(m_data->clips.size()) : 0;
 }
 
 std::string Animator::GetAnimationName(unsigned int index) const
@@ -34,7 +29,7 @@ std::string Animator::GetAnimationName(unsigned int index) const
         return {};
     }
 
-    const std::string name = m_scene->mAnimations[index]->mName.C_Str();
+    const std::string name = m_data->clips[index].name;
     return name.empty() ? "Animation " + std::to_string(index) : name;
 }
 
@@ -62,10 +57,10 @@ void Animator::Update(double deltaSeconds)
         return;
     }
 
-    const aiAnimation* animation = GetAnimation();
+    const AnimationClip* animation = GetAnimation();
     // Our fallback for files with an unspecified tick rate is 25 ticks/second.
-    const double ticksPerSecond = animation->mTicksPerSecond > 0.0 ? animation->mTicksPerSecond : 25.0;
-    const double durationSeconds = animation->mDuration / ticksPerSecond;
+    const double ticksPerSecond = animation->ticksPerSecond > 0.0 ? animation->ticksPerSecond : 25.0;
+    const double durationSeconds = animation->durationTicks / ticksPerSecond;
     m_playbackSeconds = durationSeconds > 0.0
         ? std::fmod(m_playbackSeconds + std::fmod(deltaSeconds, durationSeconds), durationSeconds)
         : 0.0;
@@ -73,39 +68,39 @@ void Animator::Update(double deltaSeconds)
 
 double Animator::GetSampleTimeTicks() const
 {
-    const aiAnimation* animation = GetAnimation();
-    if (!animation || animation->mDuration <= 0.0)
+    const AnimationClip* animation = GetAnimation();
+    if (!animation || animation->durationTicks <= 0.0)
     {
         return 0.0;
     }
 
-    const double ticksPerSecond = animation->mTicksPerSecond > 0.0 ? animation->mTicksPerSecond : 25.0;
-    return std::fmod(m_playbackSeconds * ticksPerSecond, animation->mDuration);
+    const double ticksPerSecond = animation->ticksPerSecond > 0.0 ? animation->ticksPerSecond : 25.0;
+    return std::fmod(m_playbackSeconds * ticksPerSecond, animation->durationTicks);
 }
 
 void Animator::EvaluatePose(double timeTicks)
 {
     m_nodeTransforms.clear();
-    if (m_scene && m_scene->mRootNode)
+    if (m_data && m_data->hasRoot)
     {
-        EvaluateNode(m_scene->mRootNode, aiMatrix4x4(), timeTicks);
+        EvaluateNode(&m_data->root, glm::mat4(1.0f), timeTicks);
     }
 
 }
 
-void Animator::EvaluateNode(const aiNode* node, const aiMatrix4x4& parentTransform, double timeTicks)
+void Animator::EvaluateNode(const SkeletonNode* node, const glm::mat4& parentTransform, double timeTicks)
 {
-    const std::string name(node->mName.C_Str());
-    const aiMatrix4x4 global = parentTransform * SampleLocalTransform(node,
+    const std::string name(node->name);
+    const glm::mat4 global = parentTransform * SampleLocalTransform(node,
         FindAnimationChannel(GetAnimation(), name), timeTicks);
-    m_nodeTransforms[name] = m_inverseRoot * global;
-    for (unsigned int i = 0; i < node->mNumChildren; ++i)
+    m_nodeTransforms[name] = m_data->inverseRootMatrix * global;
+    for (unsigned int i = 0; i < node->children.size(); ++i)
     {
-        EvaluateNode(node->mChildren[i], global, timeTicks);
+        EvaluateNode(&node->children[i], global, timeTicks);
     }
 }
 
-const aiNodeAnim* Animator::FindAnimationChannel(const aiAnimation* animation,
+const AnimationChannel* Animator::FindAnimationChannel(const AnimationClip* animation,
 	const std::string& nodeName) const
 {
 	if (!animation)
@@ -113,10 +108,10 @@ const aiNodeAnim* Animator::FindAnimationChannel(const aiAnimation* animation,
 		return nullptr;
 	}
 
-	for (unsigned int i = 0; i < animation->mNumChannels; ++i)
+	for (unsigned int i = 0; i < animation->channels.size(); ++i)
 	{
-		const aiNodeAnim* channel = animation->mChannels[i];
-		if (channel && nodeName == channel->mNodeName.C_Str())
+		const AnimationChannel* channel = &animation->channels[i];
+		if (nodeName == channel->nodeName)
 		{
 			return channel;
 		}
@@ -125,134 +120,157 @@ const aiNodeAnim* Animator::FindAnimationChannel(const aiAnimation* animation,
 	return nullptr;
 }
 
-namespace
+// Returns true when no interpolation is needed and writes the sampled value.
+template <typename Key, typename Value>
+static bool TrySampleBoundary(const Key* keys, unsigned int keyCount, double time,
+	const Value& fallback, Value& result)
 {
-	// Refactor
-	aiVector3D SampleVectorKey(const aiVectorKey* keys, unsigned int keyCount,
-		double time, const aiVector3D& fallback)
+	if (!keys || keyCount == 0)
 	{
-		if (!keys || keyCount == 0)
-		{
-			return fallback;
-		}
-
-		if (keyCount == 1 || time <= keys[0].mTime)
-		{
-			return keys[0].mValue;
-		}
-
-		if (time >= keys[keyCount - 1].mTime)
-		{
-			return keys[keyCount - 1].mValue;
-		}
-
-		unsigned int next = 1;
-		while (next < keyCount && time > keys[next].mTime)
-			++next;
-		const unsigned int previous = next - 1;
-		const double span = keys[next].mTime - keys[previous].mTime;
-		const float factor = span > 0.0
-			? static_cast<float>((time - keys[previous].mTime) / span)
-			: 0.0f;
-		return keys[previous].mValue
-			+ factor * (keys[next].mValue - keys[previous].mValue);
+		result = fallback;
+		return true;
 	}
 
-	// Refactor
-	aiQuaternion SampleRotationKey(const aiQuatKey* keys, unsigned int keyCount,
-		double time, const aiQuaternion& fallback)
+	if (keyCount == 1 || time <= keys[0].timeTicks)
 	{
-		if (!keys || keyCount == 0)
-		{
-			return fallback;
-		}
-
-		if (keyCount == 1 || time <= keys[0].mTime)
-		{
-			return keys[0].mValue;
-		}
-
-		if (time >= keys[keyCount - 1].mTime)
-		{
-			return keys[keyCount - 1].mValue;
-		}
-
-		unsigned int next = 1;
-		while (next < keyCount && time > keys[next].mTime)
-			++next;
-		const unsigned int previous = next - 1;
-		const double span = keys[next].mTime - keys[previous].mTime;
-		const float factor = span > 0.0
-			? static_cast<float>((time - keys[previous].mTime) / span)
-			: 0.0f;
-		aiQuaternion result;
-		aiQuaternion::Interpolate(result, keys[previous].mValue, keys[next].mValue, factor);
-		return result.Normalize();
+		result = keys[0].value;
+		return true;
 	}
+
+	if (time >= keys[keyCount - 1].timeTicks)
+	{
+		result = keys[keyCount - 1].value;
+		return true;
+	}
+
+	return false;
 }
 
-// Refactor
-aiMatrix4x4 Animator::SampleLocalTransform(const aiNode* node,
-	const aiNodeAnim* channel, double animationTime) const
+// Callers handle empty arrays and endpoint times before searching sorted keys.
+template <typename Key>
+static KeyIndices FindSurroundingKeys(const Key* keys, unsigned int keyCount, double time)
+{
+	unsigned int low = 1;
+	unsigned int high = keyCount - 1;
+	while (low < high)
+	{
+		const unsigned int middle = low + (high - low) / 2;
+		if (keys[middle].timeTicks < time)
+		{
+			low = middle + 1;
+		}
+		else
+		{
+			high = middle;
+		}
+	}
+	return {low - 1, low};
+}
+
+// Boundary tracks have identical endpoints and a zero interpolation factor.
+template <typename Value>
+struct KeySegment
+{
+    Value start;
+    Value end;
+    KeyIndices indices{0, 0};
+    float factor = 0.0f;
+    bool interpolating = false;
+};
+
+template <typename Key, typename Value>
+static KeySegment<Value> FindKeySegment(const Key* keys, unsigned int count,
+    double time, const Value& fallback)
+{
+    KeySegment<Value> segment{fallback, fallback};
+    if (TrySampleBoundary(keys, count, time, fallback, segment.start))
+    {
+        segment.end = segment.start;
+        return segment;
+    }
+
+    segment.indices = FindSurroundingKeys(keys, count, time);
+    const auto first = segment.indices.previous;
+    const auto last = segment.indices.next;
+
+    segment.start = keys[first].value;
+    segment.end = keys[last].value;
+
+    const double duration = keys[last].timeTicks - keys[first].timeTicks;
+    segment.factor = duration > 0.0 ? static_cast<float>((time - keys[first].timeTicks) / duration) : 0.0f;
+    segment.interpolating = true;
+
+    return segment;
+}
+
+static VQS SampleVQS(const AnimationChannel* channel, double time,
+    const glm::vec3& defaultPosition, const Quaternion& defaultRotation,
+    float defaultScale)
+{
+    const auto position = FindKeySegment(channel->positions.data(),
+        static_cast<unsigned int>(channel->positions.size()), time, defaultPosition);
+    const auto rotation = FindKeySegment(channel->rotations.data(),
+        static_cast<unsigned int>(channel->rotations.size()), time, defaultRotation);
+    const auto scale = FindKeySegment(channel->scales.data(),
+        static_cast<unsigned int>(channel->scales.size()), time, defaultScale);
+
+    const VQS start(position.start, rotation.start, scale.start);
+    const VQS end(position.end, rotation.end, scale.end);
+
+    VQS previous = start;
+    VQS next = end;
+
+    if (position.interpolating)
+    {
+        const auto first = position.indices.previous;
+        const auto last = position.indices.next;
+
+        // Extrapolate missing neighbors rather than wrapping to unrelated clip endpoints.
+        previous._translation = first > 0
+            ? channel->positions[first - 1].value
+            : start._translation * 2.0f - end._translation;
+        next._translation = last + 1 < static_cast<unsigned int>(channel->positions.size())
+            ? channel->positions[last + 1].value
+            : end._translation * 2.0f - start._translation;
+    }
+
+    return VQS::Interpolate(previous, start, end, next,
+        position.factor, rotation.factor, scale.factor);
+}
+
+glm::mat4 Animator::SampleLocalTransform(const SkeletonNode* node,
+	const AnimationChannel* channel, double animationTime) const
 {
 	if (!channel)
 	{
-		return node->mTransformation;
+		return node->bindMatrix;
 	}
 
-	aiVector3D defaultScale;
-	aiQuaternion defaultRotation;
-	aiVector3D defaultPosition;
-	node->mTransformation.Decompose(defaultScale, defaultRotation, defaultPosition);
-
-	const aiVector3D scale = SampleVectorKey(channel->mScalingKeys,
-		channel->mNumScalingKeys, animationTime, defaultScale);
-	const aiQuaternion rotation = SampleRotationKey(channel->mRotationKeys,
-		channel->mNumRotationKeys, animationTime, defaultRotation);
-	const aiVector3D position = SampleVectorKey(channel->mPositionKeys,
-		channel->mNumPositionKeys, animationTime, defaultPosition);
-	return aiMatrix4x4(scale, rotation, position);
+    return SampleVQS(channel, animationTime, node->bindVQS._translation,
+        node->bindVQS._rotation, node->bindVQS._scale).ToMatrix();
 }
-
-// Refactor
 double Animator::GetFirstKeyTimeTicks() const
 {
-    const aiAnimation* animation = GetAnimation();
+    const AnimationClip* animation = GetAnimation();
     if (!animation)
-    {
         return 0.0;
+
+    double firstKeyTime = 0.0;
+    bool foundKey = false;
+    const auto includeTrack = [&](const auto& keys) {
+        if (!keys.empty() && (!foundKey || keys.front().timeTicks < firstKeyTime))
+        {
+            firstKeyTime = keys.front().timeTicks;
+            foundKey = true;
+        }
+    };
+
+    for (const auto& channel : animation->channels)
+    {
+        includeTrack(channel.positions);
+        includeTrack(channel.rotations);
+        includeTrack(channel.scales);
     }
-
-	double firstKeyTime = 0.0;
-	bool foundKey = false;
-	for (unsigned int i = 0; i < animation->mNumChannels; ++i)
-	{
-		const aiNodeAnim* channel = animation->mChannels[i];
-		if (!channel)
-		{
-			continue;
-		}
-
-		const double times[] = {
-			channel->mNumPositionKeys ? channel->mPositionKeys[0].mTime : 0.0,
-			channel->mNumRotationKeys ? channel->mRotationKeys[0].mTime : 0.0,
-			channel->mNumScalingKeys ? channel->mScalingKeys[0].mTime : 0.0
-		};
-		const bool present[] = {
-			channel->mNumPositionKeys != 0,
-			channel->mNumRotationKeys != 0,
-			channel->mNumScalingKeys != 0
-		};
-		for (int keyType = 0; keyType < 3; ++keyType)
-		{
-			if (present[keyType] && (!foundKey || times[keyType] < firstKeyTime))
-			{
-				firstKeyTime = times[keyType];
-				foundKey = true;
-			}
-
-		}
-	}
 
     return firstKeyTime;
 }

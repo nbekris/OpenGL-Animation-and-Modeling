@@ -146,6 +146,7 @@
     <ClCompile Include="interact.cpp" />
     <ClCompile Include="LineRenderer.cpp" />
     <ClCompile Include="Animator.cpp" />
+    <ClCompile Include="AnimationData.cpp" />
     <ClCompile Include="Mesh.cpp" />
     <ClCompile Include="Quaternion.cpp" />
     <ClCompile Include="scene.cpp" />
@@ -164,6 +165,7 @@
     <ClInclude Include="interact.h" />
     <ClInclude Include="LineRenderer.h" />
     <ClInclude Include="Animator.h" />
+    <ClInclude Include="AnimationData.h" />
     <ClInclude Include="Mesh.h" />
     <ClInclude Include="Quaternion.h" />
     <ClInclude Include="scene.h" />

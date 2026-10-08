@@ -31,6 +31,7 @@
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="Animator.cpp"><Filter>Source Files</Filter></ClCompile>
+    <ClCompile Include="AnimationData.cpp"><Filter>Source Files</Filter></ClCompile>
     <ClCompile Include="Mesh.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -112,6 +113,7 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="Animator.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="AnimationData.h"><Filter>Header Files</Filter></ClInclude>
     <ClInclude Include="Mesh.h">
       <Filter>Header Files</Filter>
     </ClInclude>
