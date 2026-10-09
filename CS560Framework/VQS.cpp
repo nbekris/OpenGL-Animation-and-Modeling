@@ -63,7 +63,7 @@ VQS VQS::Interpolate(const VQS& previous, const VQS& start,
     const glm::vec3 translation = BezierTranslation(previous._translation,
         start._translation, end._translation, next._translation, translationT);
 
-    // Slerp modifies its arguments; preserve the source keyframes.
+    // Interpolate the source keyframe rotations.
     Quaternion startRotation = start._rotation;
     Quaternion endRotation = end._rotation;
     const Quaternion rotation = start._rotation.Slerp(startRotation, endRotation, rotationT);

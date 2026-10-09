@@ -62,7 +62,7 @@ Quaternion Quaternion::Inverse() const
 	return Quaternion(*this);
 }
 
-Quaternion Quaternion::Slerp(Quaternion& q1, Quaternion& q2, float u) const
+Quaternion Quaternion::Slerp(Quaternion q1, Quaternion q2, float u) const
 {
 	// Make sure these are unit quaternions
 	q1 = q1.Normalize();
@@ -94,20 +94,25 @@ Quaternion Quaternion::Slerp(Quaternion& q1, Quaternion& q2, float u) const
 Quaternion Quaternion::BezierDeCasteljau(const Quaternion& q0, const Quaternion& q1,
 	const Quaternion& q2, const Quaternion& q3, float u) const
 {
-	// Slerp modifies its arguments, so each interpolation uses its own copies.
-	auto interpolate = [this, u](Quaternion start, Quaternion end)
-	{
-		return Slerp(start, end, u);
-	};
+	Quaternion a = Slerp(q0, q1, u);
+	Quaternion b = Slerp(q1, q2, u);
+	Quaternion c = Slerp(q2, q3, u);
 
-	Quaternion a = interpolate(q0, q1);
-	Quaternion b = interpolate(q1, q2);
-	Quaternion c = interpolate(q2, q3);
+	Quaternion d = Slerp(a, b, u);
+	Quaternion e = Slerp(b, c, u);
 
-	Quaternion d = interpolate(a, b);
-	Quaternion e = interpolate(b, c);
+	return Slerp(d, e, u).Normalize();
+}
 
-	return interpolate(d, e).Normalize();
+Quaternion Quaternion::ISlerpCheb(Quaternion q1, Quaternion q2, float n) const
+{
+	// Make sure these are unit quaternions
+	q1 = q1.Normalize();
+	q2 = q2.Normalize();
+
+	Quaternion alpha = glm::acos(glm::dot(q1, q2)); // should be a float
+	Quaternion beta = alpha / n;
+	return Quaternion();
 }
 
 Quaternion Quaternion::operator+(const Quaternion& q2) const
