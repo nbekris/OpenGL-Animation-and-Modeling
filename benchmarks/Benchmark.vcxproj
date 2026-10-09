@@ -45,7 +45,7 @@
   <ItemGroup>
     <ClCompile Include="ToMatrixBenchmark.cpp" />
     <ClCompile Include="QuaternionVariants.cpp" />
-    <ClCompile Include="..\CS560Framework\Quaternion.cpp" />
+    <ClCompile Include="..\CS560Framework\Quaternion.cpp"><LanguageStandard>stdcpp17</LanguageStandard></ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="QuaternionVariants.h" />

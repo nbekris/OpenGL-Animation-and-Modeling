@@ -62,33 +62,33 @@ Quaternion Quaternion::Inverse() const
 	return Quaternion(*this);
 }
 
-Quaternion Quaternion::Slerp(Quaternion q1, Quaternion q2, float u) const
+QuatHelper Quaternion::PrepareSlerp(Quaternion q1, Quaternion q2) const
 {
-	// Make sure these are unit quaternions
 	q1 = q1.Normalize();
 	q2 = q2.Normalize();
 
-	// If the cosine is positive, then the path from q1 to q2 is shorter; 
-	// otherwise the path from q1 to −q2 is shorter
 	float d = Dot(q1, q2);
-	if (d < 0.0f) 
+	if (d < 0.0f)
 	{
-		// path to -q2 is shorter
+		// Flip q2 to take the shorter path.
 		q2 = q2 * -1.0f;
 		d = -d;
 	}
 
-	d = glm::clamp(d, 0.0f, 1.0f);
+	return {q1, q2, glm::clamp(d, 0.0f, 1.0f)};
+}
+
+Quaternion Quaternion::Slerp(Quaternion start, Quaternion end, float u) const
+{
+	auto [q1, q2, d] = PrepareSlerp(start, end);
+
+	// Use normalized linear interpolation for nearly identical inputs.
 	if (d > 0.9995f)
-	{
-		// Use NLerp when the dot product approaches 1
-		// This is for numerical stability and efficency
 		return ((1.0f - u) * q1 + u * q2).Normalize();
-	}
 
-	float theta = glm::acos(d);
-
-	return (glm::sin(theta - u * theta) / glm::sin(theta))*q1 + (sin(u * theta) / sin(theta))*q2;
+	const float theta = glm::acos(d);
+	return (glm::sin((1.0f - u) * theta) * q1
+		+ glm::sin(u * theta) * q2) / glm::sin(theta);
 }
 
 Quaternion Quaternion::BezierDeCasteljau(const Quaternion& q0, const Quaternion& q1,
@@ -104,21 +104,44 @@ Quaternion Quaternion::BezierDeCasteljau(const Quaternion& q0, const Quaternion&
 	return Slerp(d, e, u).Normalize();
 }
 
-Quaternion Quaternion::ISlerpCheb(Quaternion q1, Quaternion q2, float n) const
+Quaternion Quaternion::ISlerp(Quaternion start, Quaternion end, float u) const
 {
-	// Make sure these are unit quaternions
-	q1 = q1.Normalize();
-	q2 = q2.Normalize();
+	auto [q1, q2, d] = PrepareSlerp(start, end);
 
-	Quaternion alpha = glm::acos(glm::dot(q1, q2)); // should be a float
-	Quaternion beta = alpha / n;
-	return Quaternion();
+	// Use normalized linear interpolation for nearly identical inputs.
+	if (d > 0.9995f)
+		return ((1.0f - u) * q1 + u * q2).Normalize();
+
+	float n = 60;
+
+	float a = glm::acos(d); // should be a float
+	float b = a / n;
+	float A = 2 * glm::cos(b);
+
+	Quaternion q1hat = (q2 - (glm::cos(a) * q1)) / glm::sin(a);
+	Quaternion qkminus1 = q1;
+	Quaternion qk = (glm::cos(b) * q1) + (glm::sin(b) * q1hat);
+
+	for (int k = 2; k <= n; ++k) 
+	{
+		Quaternion qTemp = qk;
+		qk = (A * qk) - qkminus1;
+		qkminus1 = qTemp;
+	}
+	return qk;
 }
 
 Quaternion Quaternion::operator+(const Quaternion& q2) const
 {
 	float scaler = _s + q2._s;
 	glm::vec3 vector = _v + q2._v;
+	return Quaternion(scaler, vector);
+}
+
+Quaternion Quaternion::operator-(const Quaternion& q2) const
+{
+	float scaler = _s - q2._s;
+	glm::vec3 vector = _v - q2._v;
 	return Quaternion(scaler, vector);
 }
 
@@ -148,4 +171,9 @@ Quaternion Quaternion::operator*(const glm::vec3& r) const
 Quaternion Quaternion::operator*(const float c) const
 {
 	return Quaternion(c * _s, c * _v);
+}
+
+Quaternion Quaternion::operator/(const float c) const
+{
+	return Quaternion(_s / c, _v / c);
 }

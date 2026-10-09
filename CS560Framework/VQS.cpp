@@ -60,13 +60,18 @@ VQS VQS::Interpolate(const VQS& previous, const VQS& start,
 VQS VQS::Interpolate(const VQS& previous, const VQS& start,
     const VQS& end, const VQS& next, float translationT, float rotationT, float scaleT)
 {
-    const glm::vec3 translation = BezierTranslation(previous._translation,
-        start._translation, end._translation, next._translation, translationT);
+    const glm::vec3 translation = BezierTranslation(
+		previous._translation,
+        start._translation, 
+		end._translation, 
+		next._translation, 
+		translationT);
 
     // Interpolate the source keyframe rotations.
     Quaternion startRotation = start._rotation;
     Quaternion endRotation = end._rotation;
-    const Quaternion rotation = start._rotation.Slerp(startRotation, endRotation, rotationT);
+    //const Quaternion rotation = start._rotation.Slerp(startRotation, endRotation, rotationT);
+	const Quaternion rotation = start._rotation.ISlerp(startRotation, endRotation, rotationT);
 
     const float scale = (1.0f - scaleT) * start._scale + scaleT * end._scale;
     return VQS(translation, rotation, scale);
