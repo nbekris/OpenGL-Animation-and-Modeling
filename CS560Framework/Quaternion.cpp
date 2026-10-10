@@ -114,7 +114,7 @@ Quaternion Quaternion::ISlerp(Quaternion start, Quaternion end, float u) const
 
 	float n = 60;
 
-	float a = glm::acos(d); // should be a float
+	float a = glm::acos(d);
 	float b = a / n;
 	float A = 2 * glm::cos(b);
 
