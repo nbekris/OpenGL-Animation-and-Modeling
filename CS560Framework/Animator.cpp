@@ -1,12 +1,17 @@
 #include "Animator.h"
 #include "VQS.h"
+#include "TimingSettings.h"
 #include <cmath>
+#include <algorithm>
 
 void Animator::Reset(const AnimationData* data)
 {
     m_data = data;
     m_animationIndex = 0;
     m_playbackSeconds = 0.0;
+    m_playbackSpeed = 1.0;
+    m_interpolationMode = InterpolationMode::Incremental;
+    m_hasPlaybackRange = false;
     m_playing = false;
     m_nodeTransforms.clear();
 }
@@ -44,9 +49,50 @@ bool Animator::SetAnimation(unsigned int index)
     {
         m_animationIndex = index;
         m_playbackSeconds = 0.0;
+        m_hasPlaybackRange = false;
         m_nodeTransforms.clear();
     }
 
+    return true;
+}
+
+double Animator::GetTicksPerSecond() const
+{
+    const AnimationClip* clip = GetAnimation();
+    return clip && clip->ticksPerSecond > 0.0 ? clip->ticksPerSecond : 25.0;
+}
+
+AnimationRange Animator::GetPlaybackRange() const
+{
+    if (m_hasPlaybackRange)
+        return m_playbackRange;
+
+    const AnimationClip* clip = GetAnimation();
+    return { 0.0, clip ? clip->durationTicks : 0.0 };
+}
+
+bool Animator::SetPlaybackRange(AnimationRange range)
+{
+    const AnimationClip* clip = GetAnimation();
+    if (!clip || !std::isfinite(range.startTicks) || !std::isfinite(range.endTicks) ||
+        range.startTicks < 0.0 || range.endTicks <= range.startTicks ||
+        range.endTicks > clip->durationTicks)
+    {
+        return false;
+    }
+
+    m_playbackRange = range;
+    m_hasPlaybackRange = true;
+    m_playbackSeconds = 0.0;
+    return true;
+}
+
+bool Animator::SetPlaybackSpeed(double multiplier)
+{
+    if (!std::isfinite(multiplier) || multiplier <= 0.0)
+        return false;
+
+    m_playbackSpeed = multiplier;
     return true;
 }
 
@@ -57,25 +103,24 @@ void Animator::Update(double deltaSeconds)
         return;
     }
 
-    const AnimationClip* animation = GetAnimation();
-    // Our fallback for files with an unspecified tick rate is 25 ticks/second.
-    const double ticksPerSecond = animation->ticksPerSecond > 0.0 ? animation->ticksPerSecond : 25.0;
-    const double durationSeconds = animation->durationTicks / ticksPerSecond;
+    const double scaledDelta = deltaSeconds * m_playbackSpeed;
+    if (!std::isfinite(scaledDelta))
+        return;
+
+    const AnimationRange range = GetPlaybackRange();
+    const double durationSeconds = (range.endTicks - range.startTicks) / GetTicksPerSecond();
     m_playbackSeconds = durationSeconds > 0.0
-        ? std::fmod(m_playbackSeconds + std::fmod(deltaSeconds, durationSeconds), durationSeconds)
+        ? std::fmod(m_playbackSeconds + std::fmod(scaledDelta, durationSeconds), durationSeconds)
         : 0.0;
 }
 
 double Animator::GetSampleTimeTicks() const
 {
-    const AnimationClip* animation = GetAnimation();
-    if (!animation || animation->durationTicks <= 0.0)
-    {
-        return 0.0;
-    }
-
-    const double ticksPerSecond = animation->ticksPerSecond > 0.0 ? animation->ticksPerSecond : 25.0;
-    return std::fmod(m_playbackSeconds * ticksPerSecond, animation->durationTicks);
+    const AnimationRange range = GetPlaybackRange();
+    const double durationTicks = range.endTicks - range.startTicks;
+    return durationTicks > 0.0
+        ? range.startTicks + std::fmod(m_playbackSeconds * GetTicksPerSecond(), durationTicks)
+        : 0.0;
 }
 
 void Animator::EvaluatePose(double timeTicks)
@@ -176,11 +221,13 @@ struct KeySegment
     KeyIndices indices{0, 0};
     float factor = 0.0f;
     bool interpolating = false;
+    int n = 1;
+    int k = 0;
 };
 
 template <typename Key, typename Value>
 static KeySegment<Value> FindKeySegment(const Key* keys, unsigned int count,
-    double time, const Value& fallback)
+    double time, const Value& fallback, double ticksPerSecond)
 {
     KeySegment<Value> segment{fallback, fallback};
     if (TrySampleBoundary(keys, count, time, fallback, segment.start))
@@ -198,6 +245,10 @@ static KeySegment<Value> FindKeySegment(const Key* keys, unsigned int count,
 
     const double duration = keys[last].timeTicks - keys[first].timeTicks;
     segment.factor = duration > 0.0 ? static_cast<float>((time - keys[first].timeTicks) / duration) : 0.0f;
+    // Keep pose sampling independent of how often the scene is rendered.
+    segment.n = std::max(1, int(std::ceil(duration / ticksPerSecond *
+        TimingSettings::AnimationSamplesPerSecond)));
+    segment.k = std::min(segment.n, std::max(0, int(std::floor(double(segment.factor) * segment.n + 1e-6))));
     segment.interpolating = true;
 
     return segment;
@@ -205,37 +256,39 @@ static KeySegment<Value> FindKeySegment(const Key* keys, unsigned int count,
 
 static VQS SampleVQS(const AnimationChannel* channel, double time,
     const glm::vec3& defaultPosition, const Quaternion& defaultRotation,
-    float defaultScale)
+    float defaultScale, double ticksPerSecond, InterpolationMode mode)
 {
     const auto position = FindKeySegment(channel->positions.data(),
-        static_cast<unsigned int>(channel->positions.size()), time, defaultPosition);
+        static_cast<unsigned int>(channel->positions.size()), time, defaultPosition, ticksPerSecond);
     const auto rotation = FindKeySegment(channel->rotations.data(),
-        static_cast<unsigned int>(channel->rotations.size()), time, defaultRotation);
+        static_cast<unsigned int>(channel->rotations.size()), time, defaultRotation, ticksPerSecond);
     const auto scale = FindKeySegment(channel->scales.data(),
-        static_cast<unsigned int>(channel->scales.size()), time, defaultScale);
+        static_cast<unsigned int>(channel->scales.size()), time, defaultScale, ticksPerSecond);
 
     const VQS start(position.start, rotation.start, scale.start);
     const VQS end(position.end, rotation.end, scale.end);
 
-    VQS previous = start;
-    VQS next = end;
-
-    if (position.interpolating)
+    if (mode == InterpolationMode::NonIncremental)
     {
-        const auto first = position.indices.previous;
-        const auto last = position.indices.next;
-
-        // Extrapolate missing neighbors rather than wrapping to unrelated clip endpoints.
-        previous._translation = first > 0
-            ? channel->positions[first - 1].value
-            : start._translation * 2.0f - end._translation;
-        next._translation = last + 1 < static_cast<unsigned int>(channel->positions.size())
-            ? channel->positions[last + 1].value
-            : end._translation * 2.0f - start._translation;
+        // Missing neighbors repeat the segment endpoints. Boundary tracks remain held.
+        glm::vec3 previousPosition = position.start;
+        glm::vec3 nextPosition = position.end;
+        if (position.interpolating)
+        {
+            const auto first = position.indices.previous;
+            const auto last = position.indices.next;
+            if (first > 0)
+                previousPosition = channel->positions[first - 1].value;
+            if (last + 1 < channel->positions.size())
+                nextPosition = channel->positions[last + 1].value;
+        }
+        return VQS::Interpolate(VQS(previousPosition, rotation.start, scale.start),
+            start, end, VQS(nextPosition, rotation.end, scale.end),
+            position.factor, rotation.factor, scale.factor);
     }
 
-    return VQS::Interpolate(previous, start, end, next,
-        position.factor, rotation.factor, scale.factor);
+    return VQS::InterpolateIncremental(start, end,
+        position.n, position.k, rotation.n, rotation.k, scale.n, scale.k);
 }
 
 glm::mat4 Animator::SampleLocalTransform(const SkeletonNode* node,
@@ -247,7 +300,8 @@ glm::mat4 Animator::SampleLocalTransform(const SkeletonNode* node,
 	}
 
     return SampleVQS(channel, animationTime, node->bindVQS._translation,
-        node->bindVQS._rotation, node->bindVQS._scale).ToMatrix();
+        node->bindVQS._rotation, node->bindVQS._scale,
+        GetTicksPerSecond(), m_interpolationMode).ToMatrix();
 }
 double Animator::GetFirstKeyTimeTicks() const
 {

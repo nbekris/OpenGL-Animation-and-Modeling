@@ -21,6 +21,11 @@ class VQS
 		// Independent factors for animation tracks with different key times.
 		static VQS Interpolate(const VQS& previous, const VQS& start,
 			const VQS& end, const VQS& next, float translationT, float rotationT, float scaleT);
+		// Incremental interpolation at independent track steps; n >= 1, 0 <= k <= n.
+		static glm::vec3 ILerp(const glm::vec3& start, const glm::vec3& end, int n, int k);
+		static float IELerp(float start, float end, int n, int k);
+		static VQS InterpolateIncremental(const VQS& start, const VQS& end,
+			int translationN, int translationK, int rotationN, int rotationK, int scaleN, int scaleK);
 		// Interpolates start to end using neighboring keyframe positions (u in [0, 1]).
 		// Uses the handout's control offsets; C1 in time assumes equal segment durations.
 		// Caller supplies neighbors, including an endpoint policy for missing keys.

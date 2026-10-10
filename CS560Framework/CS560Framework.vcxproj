@@ -165,6 +165,10 @@
     <ClInclude Include="interact.h" />
     <ClInclude Include="LineRenderer.h" />
     <ClInclude Include="Animator.h" />
+    <ClInclude Include="InterpolationMode.h" />
+    <ClInclude Include="TimingSettings.h" />
+    <ClInclude Include="FrameLimiter.h" />
+    <ClInclude Include="AnimationPresets.h" />
     <ClInclude Include="AnimationData.h" />
     <ClInclude Include="Mesh.h" />
     <ClInclude Include="Quaternion.h" />

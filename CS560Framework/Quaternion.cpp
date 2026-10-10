@@ -104,31 +104,41 @@ Quaternion Quaternion::BezierDeCasteljau(const Quaternion& q0, const Quaternion&
 	return Slerp(d, e, u).Normalize();
 }
 
-Quaternion Quaternion::ISlerp(Quaternion start, Quaternion end, float u) const
+Quaternion Quaternion::ISlerp(Quaternion start, Quaternion end, int n, int k) const
 {
+	if (n < 1 || k < 0 || k > n)
+		throw std::invalid_argument("ISlerp requires n >= 1 and 0 <= k <= n.");
 	auto [q1, q2, d] = PrepareSlerp(start, end);
+	if (k == 0) return q1;
+	if (k == n) return q2;
+	const float u = float(k) / float(n);
 
 	// Use normalized linear interpolation for nearly identical inputs.
 	if (d > 0.9995f)
 		return ((1.0f - u) * q1 + u * q2).Normalize();
 
-	float n = 60;
-
-	float a = glm::acos(d);
-	float b = a / n;
-	float A = 2 * glm::cos(b);
-
-	Quaternion q1hat = (q2 - (glm::cos(a) * q1)) / glm::sin(a);
-	Quaternion qkminus1 = q1;
-	Quaternion qk = (glm::cos(b) * q1) + (glm::sin(b) * q1hat);
-
-	for (int k = 2; k <= n; ++k) 
-	{
-		Quaternion qTemp = qk;
-		qk = (A * qk) - qkminus1;
-		qkminus1 = qTemp;
-	}
-	return qk;
+	const double a = std::acos(double(d));
+    const double b = a / n;
+    const double coefficient = 2.0 * std::cos(b);
+    // Double precision keeps the recurrence stable over long segments.
+    const double first[4] = { q1._s, q1._x, q1._y, q1._z };
+    const double last[4] = { q2._s, q2._x, q2._y, q2._z };
+    double previous[4], current[4];
+    for (int i = 0; i < 4; ++i)
+    {
+        previous[i] = first[i];
+        const double tangent = (last[i] - std::cos(a) * first[i]) / std::sin(a);
+        current[i] = std::cos(b) * first[i] + std::sin(b) * tangent;
+    }
+    for (int step = 2; step <= k; ++step)
+        for (int i = 0; i < 4; ++i)
+        {
+            const double next = coefficient * current[i] - previous[i];
+            previous[i] = current[i];
+            current[i] = next;
+        }
+    return Quaternion(float(current[0]), float(current[1]),
+        float(current[2]), float(current[3])).Normalize();
 }
 
 Quaternion Quaternion::operator+(const Quaternion& q2) const

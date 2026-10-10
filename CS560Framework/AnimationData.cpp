@@ -28,16 +28,26 @@ glm::mat4 ImportMatrix(const aiMatrix4x4& m)
 
 float ImportUniformScale(const aiVector3D& scale, const std::string& context)
 {
+    const bool hasInvalidComponent =
+        !std::isfinite(scale.x) || !std::isfinite(scale.y) || !std::isfinite(scale.z);
+
     // Allow small roundoff differences from imported matrix decomposition.
-    const float tolerance = 1e-5f * std::max(1.0f,
-        std::max(std::abs(scale.x), std::max(std::abs(scale.y), std::abs(scale.z))));
-    if (!std::isfinite(scale.x) || !std::isfinite(scale.y) || !std::isfinite(scale.z) ||
-        std::abs(scale.x - scale.y) > tolerance || std::abs(scale.x - scale.z) > tolerance)
+    constexpr float relativeTolerance = 0.00001f;
+    const float largestMagnitude = std::max({
+        1.0f, std::abs(scale.x), std::abs(scale.y), std::abs(scale.z) });
+    const float tolerance = relativeTolerance * largestMagnitude;
+
+    const bool hasNonuniformScale =
+        std::abs(scale.x - scale.y) > tolerance ||
+        std::abs(scale.x - scale.z) > tolerance;
+
+    if (hasInvalidComponent || hasNonuniformScale)
     {
         throw std::runtime_error("Unsupported nonuniform or invalid scale in " + context);
     }
     return scale.x;
 }
+
 SkeletonNode ImportNode(const aiNode& source)
 {
     SkeletonNode node;

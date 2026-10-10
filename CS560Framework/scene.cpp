@@ -18,6 +18,8 @@ using namespace gl;
 #include <glm/ext.hpp>
 
 #include "framework.h"
+#include "AnimationPresets.h"
+#include "TimingSettings.h"
 //#include "shapes.h"
 #include "texture.h"
 #include "transform.h"
@@ -35,7 +37,7 @@ void Scene::InitCamera()
     tilt = 15.0;
     eye = glm::vec3(0.0, -20.0, 10.0);
     speed = 300.0 / 30.0;
-    last_time = (float)glfwGetTime();
+    last_time = glfwGetTime();
     tr = glm::vec3(0.0, -3.0, 25.0);
 
     ry = 0.4f;
@@ -110,7 +112,10 @@ void Scene::InitializeScene()
     // Start only after a valid clip has been selected.
     if (model->SetAnimation(0))
     {
-        model->GetAnimator().Play();
+        selectedAnimationPreset = 0;
+        Animator& animator = model->GetAnimator();
+        if (animator.SetPlaybackRange(AnimationPresets[selectedAnimationPreset].range))
+            animator.Play();
     }
 
     previousFrameTime = glfwGetTime();
@@ -123,7 +128,7 @@ void Scene::DrawMenu()
     ImGui::NewFrame();
 
     ImGui::Begin("Sample UI Box");
-    ImGui::Text("sample text");
+    ImGui::Text("FPS: %.1f", ImGui::GetIO().Framerate);
 
     const char* models[] = { "Roman", "Viking" };
     const char* current_model = models[0];
@@ -151,6 +156,11 @@ void Scene::DrawMenu()
     const bool hasAnimations = animator.GetAnimationCount() > 0;
     ImGui::BeginDisabled(!hasAnimations);
 
+    const bool incremental = animator.GetInterpolationMode() == InterpolationMode::Incremental;
+    if (ImGui::Button(incremental ? "Interpolation: Incremental" : "Interpolation: Non-incremental"))
+        animator.SetInterpolationMode(incremental
+            ? InterpolationMode::NonIncremental : InterpolationMode::Incremental);
+
     if (ImGui::Button(animator.IsPlaying() ? "Pause" : "Play"))
     {
         if (animator.IsPlaying())
@@ -164,35 +174,45 @@ void Scene::DrawMenu()
         }
     }
 
+    float speed = static_cast<float>(animator.GetPlaybackSpeed());
+    if (ImGui::SliderFloat("Animation speed", &speed, 0.1f, 3.0f, "%.2fx",
+        ImGuiSliderFlags_AlwaysClamp))
+    {
+        animator.SetPlaybackSpeed(speed);
+    }
+
+    ImGui::SameLine();
+    if (ImGui::Button("Normal speed"))
+        animator.SetPlaybackSpeed(1.0);
+
     ImGui::EndDisabled();
     if (!hasAnimations)
     {
         ImGui::TextDisabled("This model has no animation clips.");
     }
 
-    ImGui::Text("Playback: %.3f seconds / %.3f ticks",
+    ImGui::Text("Range elapsed: %.3f seconds / Clip tick: %.3f",
         animator.GetPlaybackSeconds(), animator.GetSampleTimeTicks());
 
     ImGui::Checkbox("Draw Bone", &bone);
     ImGui::SameLine();
     ImGui::Checkbox("Draw Mesh", &mesh);
 
-    const std::string selectedName = animator.GetAnimationName(animator.GetAnimationIndex());
+    const AnimationPreset& current = AnimationPresets[selectedAnimationPreset];
     ImGui::BeginDisabled(!hasAnimations);
-    if (ImGui::BeginCombo("Animation", selectedName.empty() ? "No animations" : selectedName.c_str()))
+    if (ImGui::BeginCombo("Animation", hasAnimations ? current.name : "No animations"))
     {
-        for (unsigned int index = 0; index < animator.GetAnimationCount(); ++index)
+        for (int index = 0; index < IM_ARRAYSIZE(AnimationPresets); ++index)
         {
-            const bool selected = index == animator.GetAnimationIndex();
-            const std::string name = animator.GetAnimationName(index);
+            const bool selected = index == selectedAnimationPreset;
+            const AnimationPreset& preset = AnimationPresets[index];
 
             ImGui::PushID(static_cast<int>(index));
-            if (ImGui::Selectable(name.c_str(), selected) && !selected)
+            if (ImGui::Selectable(preset.name, selected) &&
+                animator.SetPlaybackRange(preset.range))
             {
-                if (model->SetAnimation(index))
-                {
-                    animator.Play();
-                }
+                selectedAnimationPreset = index;
+                animator.Play();
             }
 
             if (selected)
@@ -216,8 +236,9 @@ void Scene::DrawMenu()
 
 void Scene::BuildTransforms()
 {
-    float now = (float)glfwGetTime();
-    float dist = (now-last_time)*speed;
+    const double now = glfwGetTime();
+    const double deltaSeconds = now - last_time;
+    const float dist = static_cast<float>(deltaSeconds * speed);
     last_time = now;
     if (key == GLFW_KEY_KP_8)
     {
@@ -249,14 +270,16 @@ void Scene::BuildTransforms()
         spin += dist*20.f;
     }
 
+    const double zoomExponent = std::pow(1.01,
+        deltaSeconds * TimingSettings::ZoomReferenceFramesPerSecond);
     if (key == GLFW_KEY_KP_ADD)
     {
-        tr[2] = pow(tr[2], 1.0f / 1.01f);
+        tr[2] = static_cast<float>(std::pow(tr[2], 1.0 / zoomExponent));
     }
 
     if (key == GLFW_KEY_KP_SUBTRACT)
     {
-        tr[2] = pow(tr[2], 1.01f);
+        tr[2] = static_cast<float>(std::pow(tr[2], zoomExponent));
     }
 
 

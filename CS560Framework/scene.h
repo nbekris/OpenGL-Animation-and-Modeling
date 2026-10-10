@@ -43,7 +43,7 @@ public:
     float spin, tilt, speed, ry, front, back;
     glm::vec3 eye;
     glm::vec3 tr;
-    float last_time;
+    double last_time;
     int mode; 
 
     
@@ -61,6 +61,7 @@ public:
     //UI
     bool bone = true;
     bool mesh = false;
+    int selectedAnimationPreset = 0;
 
     // Shader programs
     ShaderProgram* lightingProgram;

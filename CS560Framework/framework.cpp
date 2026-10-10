@@ -1,4 +1,6 @@
+#include "FrameLimiter.h"
 #include "framework.h"
+#include "TimingSettings.h"
 
 Scene scene;
 
@@ -32,7 +34,8 @@ int main(int argc, char** argv)
     }
 
     glfwMakeContextCurrent(scene.window);
-    glfwSwapInterval(1);
+    // Use an explicit frame cap instead of the monitor's refresh rate.
+    glfwSwapInterval(0);
 
     // Initialize the OpenGL bindings
     glbinding::Binding::initialize(glfwGetProcAddress);
@@ -52,12 +55,15 @@ int main(int argc, char** argv)
     fflush(stdout);
 
     // Enter the event loop.
+    FrameLimiter frameLimiter(TimingSettings::TargetFramesPerSecond);
     while (!glfwWindowShouldClose(scene.window)) {
+        const auto frameStart = FrameLimiter::Clock::now();
         glfwPollEvents();
 
         scene.DrawScene();
         scene.DrawMenu();
         glfwSwapBuffers(scene.window);
+        frameLimiter.Wait(frameStart);
     }
 
     ImGui_ImplOpenGL3_Shutdown();
