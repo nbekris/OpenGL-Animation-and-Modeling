@@ -9,9 +9,21 @@ using namespace gl;
 #include "shader.h"
 #include "transform.h"
 
+LineRenderer::~LineRenderer()
+{
+    if (vbo)
+    {
+        glDeleteBuffers(1, &vbo);
+    }
+    if (vao)
+    {
+        glDeleteVertexArrays(1, &vao);
+    }
+}
+
 void LineRenderer::SetLines(const std::vector<glm::vec3>& endpoints)
 {
-    // GL_LINES consumes vertices in pairs; discard an unmatched endpoint.
+    // GL_LINES consumes vertices in pairs, discard unmatched endpoint.
     vertexCount = static_cast<int>(endpoints.size() - endpoints.size() % 2);
 
     if (vao == 0)
@@ -22,7 +34,7 @@ void LineRenderer::SetLines(const std::vector<glm::vec3>& endpoints)
 
     glBindVertexArray(vao);
     glBindBuffer(GL_ARRAY_BUFFER, vbo);
-    // Reuse storage while the skeleton topology stays the same.
+    // Reuse storage while the skeleton structure stays the same.
     if (vertexCount > vertexCapacity)
     {
         vertexCapacity = vertexCount;

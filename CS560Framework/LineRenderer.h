@@ -9,6 +9,7 @@ class ShaderProgram;
 class LineRenderer
 {
 public:
+    ~LineRenderer();
     void SetLines(const std::vector<glm::vec3>& endpoints);
     void Draw(ShaderProgram& shader, glm::mat4& worldProj, glm::mat4& worldView,
         glm::mat4& modelTransform, const glm::vec3& color);

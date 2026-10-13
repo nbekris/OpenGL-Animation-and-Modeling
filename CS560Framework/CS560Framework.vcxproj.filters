@@ -125,6 +125,9 @@
     <ClInclude Include="AnimationData.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="Skinning.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="Mesh.h">
       <Filter>Header Files</Filter>
     </ClInclude>
@@ -149,6 +152,12 @@
     <ClInclude Include="AnimationPresets.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="TimingSettings.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="FrameLimiter.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <None Include="shaders\fragmentShader.frag">
@@ -169,5 +178,13 @@
     <None Include="shaders\vertexShader.vert">
       <Filter>Shaders</Filter>
     </None>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="ModelMaterials.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClInclude Include="ModelMaterials.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
 </Project>

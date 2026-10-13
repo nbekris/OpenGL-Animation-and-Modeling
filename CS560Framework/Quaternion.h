@@ -4,6 +4,16 @@
 
 struct QuatHelper;
 
+// Reset when either endpoint or the subdivision count changes.
+struct ISlerpState
+{
+    bool initialized = false;
+    int step = 1;
+    double coefficient = 0.0;
+    double previous[4]{};
+    double current[4]{};
+};
+
 class Quaternion
 {
 	public:
@@ -35,7 +45,7 @@ class Quaternion
 		Quaternion BezierDeCasteljau(const Quaternion& q0, const Quaternion& q1,
 			const Quaternion& q2, const Quaternion& q3, float u) const;
 		// n equal subdivisions, sampled at step k (0 <= k <= n).
-		Quaternion ISlerp(Quaternion q1, Quaternion q2, int n, int k) const;
+        Quaternion ISlerp(Quaternion q1, Quaternion q2, int n, int k, ISlerpState& state) const;
 
 		Quaternion operator+(const Quaternion& q2) const;
 		Quaternion operator-(const Quaternion& q2) const;

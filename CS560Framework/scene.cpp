@@ -2,6 +2,7 @@
 #include "math.h"
 #include <iostream>
 #include <stdlib.h>
+#include <memory>
 
 #include <glbinding/gl/gl.h>
 #pragma warning(disable: 4251)
@@ -26,6 +27,54 @@ using namespace gl;
 
 const float PI = 3.14159f;
 const float rad = PI/180.0f;
+
+namespace
+{
+    const char* ModelNames[] = { "Roman", "Viking" };
+    const char* ModelPaths[] = { "fbx/fbx/roman_D.fbx", "fbx/fbx/viking_C.fbx" };
+}
+
+bool Scene::SelectModel(int index)
+{
+    try
+    {
+        if (index < 0 || index >= static_cast<int>(loadedModels.size()) || !loadedModels[index])
+        {
+            throw std::runtime_error("Model is not loaded");
+        }
+
+        Mesh* replacement = loadedModels[index].get();
+        replacement->GetAnimator().Reset(&replacement->GetAnimationData());
+
+        if (replacement->SetAnimation(0))
+        {
+            Animator& animator = replacement->GetAnimator();
+            if (animator.SetPlaybackRange(AnimationPresets[0].range))
+            {
+                animator.Play();
+            }
+        }
+        model = replacement;
+        selectedModel = index;
+        selectedAnimationPreset = 0;
+        modelLoadError.clear();
+        return true;
+    }
+    catch (const std::exception& error)
+    {
+        modelLoadError = error.what();
+        return false;
+    }
+}
+
+void Scene::ReleaseModels()
+{
+    model = nullptr;
+    for (auto& cached : loadedModels)
+    {
+        cached.reset();
+    }
+}
 
 glm::mat4 Identity;
 
@@ -107,16 +156,17 @@ void Scene::InitializeScene()
     quad = new Quad();
     floor.Initialize();
 
-    model = new Mesh();
-    model->LoadMesh("fbx/fbx/roman_D.fbx");
-    // Start only after a valid clip has been selected.
-    if (model->SetAnimation(0))
+    for (int index = 0; index < IM_ARRAYSIZE(ModelPaths); ++index)
     {
-        selectedAnimationPreset = 0;
-        Animator& animator = model->GetAnimator();
-        if (animator.SetPlaybackRange(AnimationPresets[selectedAnimationPreset].range))
-            animator.Play();
+        auto cached = std::make_unique<Mesh>();
+        cached->LoadMesh(ModelPaths[index]);
+        if (!cached->GetAnimationData().hasRoot)
+        {
+            throw std::runtime_error(std::string("Could not load model: ") + ModelPaths[index]);
+        }
+        loadedModels[index] = std::move(cached);
     }
+    SelectModel(0);
 
     previousFrameTime = glfwGetTime();
 }
@@ -130,19 +180,17 @@ void Scene::DrawMenu()
     ImGui::Begin("Sample UI Box");
     ImGui::Text("FPS: %.1f", ImGui::GetIO().Framerate);
 
-    const char* models[] = { "Roman", "Viking" };
-    const char* current_model = models[0];
-    if (ImGui::BeginCombo("Model", models[0]))
+    if (ImGui::BeginCombo("Model", ModelNames[selectedModel]))
     {
-        for (int n = 0; n < IM_ARRAYSIZE(models); n++)
+        for (int n = 0; n < IM_ARRAYSIZE(ModelNames); n++)
         {
-            bool is_selected = (current_model == models[n]);
-            if (ImGui::Selectable(models[n], is_selected))
+            bool isSelected = (selectedModel == n);
+            if (ImGui::Selectable(ModelNames[n], isSelected) && !isSelected)
             {
-                current_model = models[n];
+                SelectModel(n);
             }
 
-            if (is_selected)
+            if (isSelected)
             {
                 ImGui::SetItemDefaultFocus();
             }
@@ -152,14 +200,21 @@ void Scene::DrawMenu()
         ImGui::EndCombo();
     }
 
-    Animator& animator = model->GetAnimator();
-    const bool hasAnimations = animator.GetAnimationCount() > 0;
-    ImGui::BeginDisabled(!hasAnimations);
+    if (!modelLoadError.empty())
+    {
+        ImGui::TextWrapped("Model load failed: %s", modelLoadError.c_str());
+    }
 
-    const bool incremental = animator.GetInterpolationMode() == InterpolationMode::Incremental;
-    if (ImGui::Button(incremental ? "Interpolation: Incremental" : "Interpolation: Non-incremental"))
-        animator.SetInterpolationMode(incremental
-            ? InterpolationMode::NonIncremental : InterpolationMode::Incremental);
+    Animator& animator = model->GetAnimator();
+
+    // Imgui logic for handling selection between incremental and non incremental interpolation algorithms
+    int interpolationIndex = animator.GetInterpolationMode() == InterpolationMode::Incremental ? 1 : 0;
+    const char* interpolationNames[] = { "Slerp", "iSlerp" };
+    if (ImGui::Combo("Interpolation", &interpolationIndex, interpolationNames, IM_ARRAYSIZE(interpolationNames)))
+    {
+        animator.SetInterpolationMode(interpolationIndex == 0 ? InterpolationMode::NonIncremental
+                                                              : InterpolationMode::Incremental);
+    }
 
     if (ImGui::Button(animator.IsPlaying() ? "Pause" : "Play"))
     {
@@ -174,6 +229,8 @@ void Scene::DrawMenu()
         }
     }
 
+    // Animation speed selection
+    // Implemented to try and check results with the sample project
     float speed = static_cast<float>(animator.GetPlaybackSpeed());
     if (ImGui::SliderFloat("Animation speed", &speed, 0.1f, 3.0f, "%.2fx",
         ImGuiSliderFlags_AlwaysClamp))
@@ -183,12 +240,8 @@ void Scene::DrawMenu()
 
     ImGui::SameLine();
     if (ImGui::Button("Normal speed"))
-        animator.SetPlaybackSpeed(1.0);
-
-    ImGui::EndDisabled();
-    if (!hasAnimations)
     {
-        ImGui::TextDisabled("This model has no animation clips.");
+        animator.SetPlaybackSpeed(1.0);
     }
 
     ImGui::Text("Range elapsed: %.3f seconds / Clip tick: %.3f",
@@ -198,9 +251,11 @@ void Scene::DrawMenu()
     ImGui::SameLine();
     ImGui::Checkbox("Draw Mesh", &mesh);
 
+    // Build animation selection drop down menu
+    // Implementation is a little weird because we had to manually figure out
+    // animation payback ranges.
     const AnimationPreset& current = AnimationPresets[selectedAnimationPreset];
-    ImGui::BeginDisabled(!hasAnimations);
-    if (ImGui::BeginCombo("Animation", hasAnimations ? current.name : "No animations"))
+    if (ImGui::BeginCombo("Animation", current.name))
     {
         for (int index = 0; index < IM_ARRAYSIZE(AnimationPresets); ++index)
         {
@@ -225,7 +280,6 @@ void Scene::DrawMenu()
         ImGui::EndCombo();
     }
 
-    ImGui::EndDisabled();
     ImGui::End();
 
 
@@ -324,8 +378,10 @@ void Scene::DrawScene()
 
     Animator& animator = model->GetAnimator();
     animator.Update(deltaSeconds);
+
     // Evaluate even while paused so the current playback position defines the pose.
     animator.EvaluatePose(animator.GetSampleTimeTicks());
+    model->UpdateSkinningPose();
     model->UpdateSkeletonPose();
     if (mesh)
     {
@@ -395,4 +451,3 @@ void Scene::DrawScene()
     }
 
 }
-

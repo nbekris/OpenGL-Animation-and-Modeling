@@ -30,7 +30,7 @@ struct SkeletonNode
     std::vector<SkeletonNode> children;
     // Exact transform for nodes without animation channels.
     glm::mat4 bindMatrix{1.0f};
-    // Decomposed defaults for missing tracks; scale is always uniform.
+    // Decomposed defaults for animated nodes; static nodes use bindMatrix.
     VQS bindVQS;
 };
 
@@ -38,6 +38,12 @@ struct SkeletonBone
 {
     std::string name;
     glm::mat4 offsetMatrix{1.0f};
+};
+
+struct MeshInstance
+{
+    unsigned int meshIndex;
+    std::string nodeName;
 };
 
 // Owns all values, with no pointers into the Assimp importer.
@@ -49,7 +55,9 @@ struct AnimationData
     std::vector<AnimationClip> clips;
     // Mesh order, then bone order; preserve mesh-specific offsets for shared names.
     std::vector<std::vector<SkeletonBone>> meshBones;
+    std::vector<MeshInstance> meshInstances;
 };
 
-// Import boundary; null produces empty data. Throws std::runtime_error on nonuniform scale.
+// Null produces empty data. Animated nonuniform scale is unsupported;
+// static nodes retain their exact bind matrix.
 AnimationData ImportAnimationData(const aiScene* scene);

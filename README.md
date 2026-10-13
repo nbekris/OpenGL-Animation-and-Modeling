@@ -8,13 +8,13 @@ The project currently opens a Roman character by default, renders it over a wire
 
 - OpenGL 3.3 core-profile renderer backed by GLFW and glbinding
 - Assimp-based FBX mesh, bone, normal, and UV import
-- GPU vertex skinning data (up to four bone influences per vertex)
+- GPU linear blend skinning, with Assimp limiting and normalizing influences to four per vertex
 - Deferred rendering with a four-texture G-buffer and a Phong lighting pass
-- Wireframe floor and optional cyan bind-pose skeleton overlay
+- Wireframe floor and optional red animated skeleton overlay
 - Dear ImGui interface with playback, mesh, skeleton, model, and animation controls
 - Camera navigation through mouse and numeric keypad controls
 
-> **Current state:** The ImGui model and animation selectors are UI scaffolding; the renderer currently loads `roman_D.fbx` and draws its bind pose. The Play, Draw Mesh, and animation selection controls are not yet connected to playback or asset switching.
+> **Current state:** The renderer loads `roman_D.fbx` and starts animation playback. Enable **Draw Mesh** to view the skinned surface alongside the skeleton. Playback and animation preset controls are connected; the model selector remains scaffolding. The Viking asset currently fails the existing uniform-scale import requirement at its `shield` node.
 
 ## Requirements
 
@@ -26,7 +26,8 @@ The required headers and static libraries for GLFW, glbinding, Assimp, GLM, and 
 
 ## Rendering pipeline
 
-1. The selected FBX asset is imported with Assimp, triangulated, and uploaded to OpenGL vertex/index buffers.
-2. The geometry pass writes world position, normal, diffuse, and specular data to the G-buffer.
-3. A fullscreen quad reads those textures and applies Phong lighting.
-4. The depth buffer is copied back to the default framebuffer so the floor and optional skeleton overlay compose correctly with the model.
+1. Assimp imports and triangulates the FBX asset, limits bone influences to four per vertex, and normalizes retained weights.
+2. Animator evaluates the root-relative pose. Each submesh retains its own inverse bind matrices and uploads a palette of up to 128 bone matrices through a uniform buffer.
+3. The geometry shader deforms positions and normals using linear blend skinning. Unweighted vertices use their mesh-node transform. The geometry pass writes world position, normal, diffuse, and specular data to the G-buffer.
+4. A fullscreen quad reads those textures and applies Phong lighting.
+5. The depth buffer is copied back to the default framebuffer so the floor and skeleton overlay compose with the model.

@@ -25,7 +25,9 @@ public:
     ~FrameLimiter()
     {
         if (m_timer)
+        {
             CloseHandle(m_timer);
+        }
     }
 
     FrameLimiter(const FrameLimiter&) = delete;
@@ -42,12 +44,16 @@ public:
             LARGE_INTEGER dueTime;
             dueTime.QuadPart = -std::chrono::duration_cast<TimerTicks>(sleepDuration).count();
             if (SetWaitableTimer(m_timer, &dueTime, 0, nullptr, nullptr, FALSE))
+            {
                 WaitForSingleObject(m_timer, INFINITE);
+            }
         }
 
         // Also works as a fallback if a high-resolution timer is unavailable.
         while (Clock::now() < deadline)
+        {
             std::this_thread::yield();
+        }
     }
 
 private:

@@ -1,6 +1,7 @@
 #include "FrameLimiter.h"
 #include "framework.h"
 #include "TimingSettings.h"
+#include "../tests/SkinningGpuSmoke.h"
 
 Scene scene;
 
@@ -11,6 +12,7 @@ static void error_callback(int error, const char* msg)
 
 int main(int argc, char** argv)
 {
+    const bool skinningSmoke = argc == 2 && std::string(argv[1]) == "--skinning-smoke";
     glfwSetErrorCallback(error_callback);
 
 
@@ -22,6 +24,10 @@ int main(int argc, char** argv)
 
 
     glfwWindowHint(GLFW_RESIZABLE, 1);
+    if (skinningSmoke)
+    {
+        glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
+    }
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
@@ -54,6 +60,24 @@ int main(int argc, char** argv)
     printf("Rendered by: %s\n", glGetString(GL_RENDERER));
     fflush(stdout);
 
+    if (skinningSmoke)
+    {
+        int result = 0;
+        try { RunSkinningGpuSmoke(scene); }
+        catch (const std::exception& error)
+        {
+            fprintf(stderr, "Skinning smoke failed: %s\n", error.what());
+            result = 1;
+        }
+        scene.ReleaseModels();
+        ImGui_ImplOpenGL3_Shutdown();
+        ImGui_ImplGlfw_Shutdown();
+        ImGui::DestroyContext();
+        glfwDestroyWindow(scene.window);
+        glfwTerminate();
+        return result;
+    }
+
     // Enter the event loop.
     FrameLimiter frameLimiter(TimingSettings::TargetFramesPerSecond);
     while (!glfwWindowShouldClose(scene.window)) {
@@ -70,5 +94,7 @@ int main(int argc, char** argv)
     ImGui_ImplGlfw_Shutdown();
     ImGui::DestroyContext();
 
+    // Mesh owns GL buffers; destroy them while the context is still current.
+    scene.ReleaseModels();
     glfwTerminate();
 }

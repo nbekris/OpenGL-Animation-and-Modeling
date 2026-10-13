@@ -25,7 +25,7 @@ class VQS
 		static glm::vec3 ILerp(const glm::vec3& start, const glm::vec3& end, int n, int k);
 		static float IELerp(float start, float end, int n, int k);
 		static VQS InterpolateIncremental(const VQS& start, const VQS& end,
-			int translationN, int translationK, int rotationN, int rotationK, int scaleN, int scaleK);
+			int translationN, int translationK, int rotationN, int rotationK, int scaleN, int scaleK, ISlerpState& rotationState);
 		// Interpolates start to end using neighboring keyframe positions (u in [0, 1]).
 		// Uses the handout's control offsets; C1 in time assumes equal segment durations.
 		// Caller supplies neighbors, including an endpoint policy for missing keys.

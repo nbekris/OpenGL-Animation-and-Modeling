@@ -148,7 +148,9 @@
     <ClCompile Include="Animator.cpp" />
     <ClCompile Include="AnimationData.cpp" />
     <ClCompile Include="Mesh.cpp" />
-    <ClCompile Include="Quaternion.cpp"><LanguageStandard>stdcpp17</LanguageStandard></ClCompile>
+    <ClCompile Include="Quaternion.cpp">
+      <LanguageStandard>stdcpp17</LanguageStandard>
+    </ClCompile>
     <ClCompile Include="scene.cpp" />
     <ClCompile Include="shader.cpp" />
     <ClCompile Include="shapes.cpp" />
@@ -171,6 +173,7 @@
     <ClInclude Include="AnimationPresets.h" />
     <ClInclude Include="AnimationData.h" />
     <ClInclude Include="Mesh.h" />
+    <ClInclude Include="Skinning.h" />
     <ClInclude Include="Quaternion.h" />
     <ClInclude Include="scene.h" />
     <ClInclude Include="shader.h" />
@@ -191,4 +194,8 @@
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
   </ImportGroup>
+  <ItemGroup>
+    <ClCompile Include="ModelMaterials.cpp" />
+    <ClInclude Include="ModelMaterials.h" />
+  </ItemGroup>
 </Project>

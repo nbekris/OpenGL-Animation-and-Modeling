@@ -18,6 +18,8 @@
 #include "gbuffer.h"
 #include "Mesh.h"
 #include "WireframeFloor.h"
+#include <array>
+#include <memory>
 
 class Shader;
 
@@ -54,7 +56,9 @@ public:
     glm::mat4 WorldProj, WorldView, WorldInverse;
     glm::mat4 lightProj, lightView;
 
-    Mesh* model;
+    // Non-owning pointer to the active cached model.
+    Mesh* model = nullptr;
+    std::array<std::unique_ptr<Mesh>, 2> loadedModels;
     Shape* quad; //deferred shading
     WireframeFloor floor;
 
@@ -62,6 +66,8 @@ public:
     bool bone = true;
     bool mesh = false;
     int selectedAnimationPreset = 0;
+    int selectedModel = 0;
+    std::string modelLoadError;
 
     // Shader programs
     ShaderProgram* lightingProgram;
@@ -72,6 +78,8 @@ public:
     void CreateQuad();
     void DrawQuad();
     void InitializeScene();
+    bool SelectModel(int index);
+    void ReleaseModels();
     void BuildTransforms();
     void DrawMenu();
     void DrawScene();

@@ -71,7 +71,6 @@ VQS VQS::Interpolate(const VQS& previous, const VQS& start,
     // Interpolate the source keyframe rotations.
     Quaternion startRotation = start._rotation;
     Quaternion endRotation = end._rotation;
-    //const Quaternion rotation = start._rotation.Slerp(startRotation, endRotation, rotationT);
 	const Quaternion rotation = start._rotation.Slerp(startRotation, endRotation, rotationT);
 
     //const float scale = (1.0f - scaleT) * start._scale + scaleT * end._scale;
@@ -91,44 +90,72 @@ VQS VQS::Interpolate(const VQS& previous, const VQS& start,
 static void ValidateSteps(int n, int k)
 {
     if (n < 1 || k < 0 || k > n)
+    {
         throw std::invalid_argument("Interpolation requires n >= 1 and 0 <= k <= n.");
+    }
 }
 
 glm::vec3 VQS::ILerp(const glm::vec3& start, const glm::vec3& end, int n, int k)
 {
     ValidateSteps(n, k);
-    if (k == n) return end;
+    if (k == n)
+    {
+        return end;
+    }
+
     const glm::vec3 delta = (end - start) / float(n);
     glm::vec3 value = start;
-    for (int step = 0; step < k; ++step) value += delta;
+
+    for (int step = 0; step < k; ++step)
+    {
+        value += delta;
+    }
+
     return value;
 }
 
 float VQS::IELerp(float start, float end, int n, int k)
 {
     ValidateSteps(n, k);
-    if (k == 0) return start;
-    if (k == n) return end;
+
+    if (k == 0)
+    {
+        return start;
+    }
+
+    if (k == n)
+    {
+        return end;
+    }
+
     // Signed or zero scales cannot use a positive geometric ratio.
     double value = start;
     if (start > 0.0f && end > 0.0f)
     {
         const double ratio = std::pow(double(end) / start, 1.0 / n);
-        for (int step = 0; step < k; ++step) value *= ratio;
+        for (int step = 0; step < k; ++step)
+        {
+            value *= ratio;
+        }
     }
     else
     {
         const double delta = (double(end) - start) / n;
-        for (int step = 0; step < k; ++step) value += delta;
+        for (int step = 0; step < k; ++step)
+        {
+            value += delta;
+        }
     }
+
     return float(value);
 }
 
 VQS VQS::InterpolateIncremental(const VQS& start, const VQS& end,
-    int translationN, int translationK, int rotationN, int rotationK, int scaleN, int scaleK)
+    int translationN, int translationK, int rotationN, int rotationK, int scaleN, int scaleK, ISlerpState& rotationState)
 {
-    return VQS(ILerp(start._translation, end._translation, translationN, translationK),
-        start._rotation.ISlerp(start._rotation, end._rotation, rotationN, rotationK),
+    return VQS(
+        ILerp(start._translation, end._translation, translationN, translationK),
+        start._rotation.ISlerp(start._rotation, end._rotation, rotationN, rotationK, rotationState),
         IELerp(start._scale, end._scale, scaleN, scaleK));
 }
 

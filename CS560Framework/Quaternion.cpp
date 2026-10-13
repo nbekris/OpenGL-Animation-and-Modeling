@@ -84,9 +84,11 @@ Quaternion Quaternion::Slerp(Quaternion start, Quaternion end, float u) const
 
 	// Use normalized linear interpolation for nearly identical inputs.
 	if (d > 0.9995f)
-		return ((1.0f - u) * q1 + u * q2).Normalize();
+    {
+        return ((1.0f - u) * q1 + u * q2).Normalize();
+    }
 
-	const float theta = glm::acos(d);
+    const float theta = glm::acos(d);
 	return (glm::sin((1.0f - u) * theta) * q1
 		+ glm::sin(u * theta) * q2) / glm::sin(theta);
 }
@@ -104,41 +106,69 @@ Quaternion Quaternion::BezierDeCasteljau(const Quaternion& q0, const Quaternion&
 	return Slerp(d, e, u).Normalize();
 }
 
-Quaternion Quaternion::ISlerp(Quaternion start, Quaternion end, int n, int k) const
+Quaternion Quaternion::ISlerp(
+    Quaternion start, Quaternion end, int n, int k, ISlerpState& state) const
 {
-	if (n < 1 || k < 0 || k > n)
-		throw std::invalid_argument("ISlerp requires n >= 1 and 0 <= k <= n.");
-	auto [q1, q2, d] = PrepareSlerp(start, end);
-	if (k == 0) return q1;
-	if (k == n) return q2;
-	const float u = float(k) / float(n);
-
-	// Use normalized linear interpolation for nearly identical inputs.
-	if (d > 0.9995f)
-		return ((1.0f - u) * q1 + u * q2).Normalize();
-
-	const double a = std::acos(double(d));
-    const double b = a / n;
-    const double coefficient = 2.0 * std::cos(b);
-    // Double precision keeps the recurrence stable over long segments.
-    const double first[4] = { q1._s, q1._x, q1._y, q1._z };
-    const double last[4] = { q2._s, q2._x, q2._y, q2._z };
-    double previous[4], current[4];
-    for (int i = 0; i < 4; ++i)
+    if (n < 1 || k < 0 || k > n)
     {
-        previous[i] = first[i];
-        const double tangent = (last[i] - std::cos(a) * first[i]) / std::sin(a);
-        current[i] = std::cos(b) * first[i] + std::sin(b) * tangent;
+        throw std::invalid_argument("ISlerp requires n >= 1 and 0 <= k <= n.");
     }
-    for (int step = 2; step <= k; ++step)
+
+    auto [q1, q2, d] = PrepareSlerp(start, end);
+    if (k == 0)
+    {
+        state.initialized = false;
+        return q1;
+    }
+    if (k == n)
+    {
+        return q2;
+    }
+
+    const float u = float(k) / float(n);
+    if (d > 0.9995f)
+    {
+        return ((1.0f - u) * q1 + u * q2).Normalize();
+    }
+
+    // Initialize once, or restart when sampling backwards.
+    if (!state.initialized || k < state.step)
+    {
+        const double a = std::acos(double(d));
+        const double b = a / n;
+        const double cosB = std::cos(b);
+        const double sinB = std::sin(b);
+        const double sinA = std::sin(a);
+        state.coefficient = 2.0 * cosB; // Big A
+
+		// save cacluations
+        const double first[4] = {q1._s, q1._x, q1._y, q1._z};
+        const double last[4] = {q2._s, q2._x, q2._y, q2._z};
         for (int i = 0; i < 4; ++i)
         {
-            const double next = coefficient * current[i] - previous[i];
-            previous[i] = current[i];
-            current[i] = next;
+            state.previous[i] = first[i];
+            const double tangent = (last[i] - double(d) * first[i]) / sinA;
+            state.current[i] = cosB * first[i] + sinB * tangent;
         }
-    return Quaternion(float(current[0]), float(current[1]),
-        float(current[2]), float(current[3])).Normalize();
+        state.step = 1;
+        state.initialized = true;
+    }
+
+    // Continue from the last computed sample.
+    while (state.step < k)
+    {
+        for (int i = 0; i < 4; ++i)
+        {
+            const double next =
+                state.coefficient * state.current[i] - state.previous[i];
+            state.previous[i] = state.current[i];
+            state.current[i] = next;
+        }
+        ++state.step;
+    }
+
+    return Quaternion(float(state.current[0]), float(state.current[1]),
+        float(state.current[2]), float(state.current[3])).Normalize();
 }
 
 Quaternion Quaternion::operator+(const Quaternion& q2) const

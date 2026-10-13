@@ -14,6 +14,19 @@ void Animator::Reset(const AnimationData* data)
     m_hasPlaybackRange = false;
     m_playing = false;
     m_nodeTransforms.clear();
+    m_skeletonEndpoints.clear();
+    m_boneNames.clear();
+    CacheAnimationChannels();
+    if (m_data)
+    {
+        for (const auto& bones : m_data->meshBones)
+        {
+            for (const auto& bone : bones)
+            {
+                m_boneNames.insert(bone.name);
+            }
+        }
+    }
 }
 
 const AnimationClip* Animator::GetAnimation() const
@@ -48,9 +61,11 @@ bool Animator::SetAnimation(unsigned int index)
     if (index != m_animationIndex)
     {
         m_animationIndex = index;
+        CacheAnimationChannels();
         m_playbackSeconds = 0.0;
         m_hasPlaybackRange = false;
         m_nodeTransforms.clear();
+        m_skeletonEndpoints.clear();
     }
 
     return true;
@@ -65,7 +80,9 @@ double Animator::GetTicksPerSecond() const
 AnimationRange Animator::GetPlaybackRange() const
 {
     if (m_hasPlaybackRange)
+    {
         return m_playbackRange;
+    }
 
     const AnimationClip* clip = GetAnimation();
     return { 0.0, clip ? clip->durationTicks : 0.0 };
@@ -90,7 +107,9 @@ bool Animator::SetPlaybackRange(AnimationRange range)
 bool Animator::SetPlaybackSpeed(double multiplier)
 {
     if (!std::isfinite(multiplier) || multiplier <= 0.0)
+    {
         return false;
+    }
 
     m_playbackSpeed = multiplier;
     return true;
@@ -105,7 +124,9 @@ void Animator::Update(double deltaSeconds)
 
     const double scaledDelta = deltaSeconds * m_playbackSpeed;
     if (!std::isfinite(scaledDelta))
+    {
         return;
+    }
 
     const AnimationRange range = GetPlaybackRange();
     const double durationSeconds = (range.endTicks - range.startTicks) / GetTicksPerSecond();
@@ -126,46 +147,62 @@ double Animator::GetSampleTimeTicks() const
 void Animator::EvaluatePose(double timeTicks)
 {
     m_nodeTransforms.clear();
+    m_skeletonEndpoints.clear();
     if (m_data && m_data->hasRoot)
     {
-        EvaluateNode(&m_data->root, glm::mat4(1.0f), timeTicks);
+        EvaluateNode(&m_data->root, glm::mat4(1.0f), timeTicks, false, glm::vec3(0.0f));
     }
 
 }
 
-void Animator::EvaluateNode(const SkeletonNode* node, const glm::mat4& parentTransform, double timeTicks)
+void Animator::EvaluateNode(const SkeletonNode* node, const glm::mat4& parentTransform, double timeTicks,
+    bool hasParentBone, const glm::vec3& parentBonePosition)
 {
     const std::string name(node->name);
-    const glm::mat4 global = parentTransform * SampleLocalTransform(node,
-        FindAnimationChannel(GetAnimation(), name), timeTicks);
-    m_nodeTransforms[name] = m_data->inverseRootMatrix * global;
+    const glm::mat4 global =
+        parentTransform * SampleLocalTransform(node, FindAnimationChannel(name), timeTicks);
+
+    const glm::mat4 transform = m_data->inverseRootMatrix * global;
+    m_nodeTransforms[name] = transform;
+    const glm::vec3 position(transform[3]);
+    const bool isBone = m_boneNames.count(name) != 0;
+    if (isBone && hasParentBone)
+    {
+        m_skeletonEndpoints.push_back(parentBonePosition);
+        m_skeletonEndpoints.push_back(position);
+    }
     for (unsigned int i = 0; i < node->children.size(); ++i)
     {
-        EvaluateNode(&node->children[i], global, timeTicks);
+        // Helper nodes affect transforms, but lines connect actual bones.
+        EvaluateNode(&node->children[i], global, timeTicks, isBone || hasParentBone,
+            isBone ? position : parentBonePosition);
     }
 }
 
-const AnimationChannel* Animator::FindAnimationChannel(const AnimationClip* animation,
-	const std::string& nodeName) const
+void Animator::CacheAnimationChannels()
 {
-	if (!animation)
-	{
-		return nullptr;
-	}
+    m_animationChannels.clear();
+    m_rotationSamplers.clear();
+    const AnimationClip* animation = GetAnimation();
+    if (animation)
+    {
+        m_animationChannels.reserve(animation->channels.size());
+        for (const auto& channel : animation->channels)
+        {
+            // Preserve the original lookup's first match for duplicate names.
+            m_animationChannels.emplace(channel.nodeName, &channel);
+        }
+    }
+}
 
-	for (unsigned int i = 0; i < animation->channels.size(); ++i)
-	{
-		const AnimationChannel* channel = &animation->channels[i];
-		if (nodeName == channel->nodeName)
-		{
-			return channel;
-		}
-
-	}
-	return nullptr;
+const AnimationChannel* Animator::FindAnimationChannel(const std::string& nodeName) const
+{
+    const auto found = m_animationChannels.find(nodeName);
+    return found != m_animationChannels.end() ? found->second : nullptr;
 }
 
 // Returns true when no interpolation is needed and writes the sampled value.
+// This would happen when playback is close to the beginning or end of the clip
 template <typename Key, typename Value>
 static bool TrySampleBoundary(const Key* keys, unsigned int keyCount, double time,
 	const Value& fallback, Value& result)
@@ -195,6 +232,7 @@ static bool TrySampleBoundary(const Key* keys, unsigned int keyCount, double tim
 template <typename Key>
 static KeyIndices FindSurroundingKeys(const Key* keys, unsigned int keyCount, double time)
 {
+    // Binary Search to find key times
 	unsigned int low = 1;
 	unsigned int high = keyCount - 1;
 	while (low < high)
@@ -225,6 +263,8 @@ struct KeySegment
     int k = 0;
 };
 
+// Finds two keyframes around the requested time and how far we are between them
+// Use templates for types Quaternions, Translation, and Scaler (vec3, quaternion, float)
 template <typename Key, typename Value>
 static KeySegment<Value> FindKeySegment(const Key* keys, unsigned int count,
     double time, const Value& fallback, double ticksPerSecond)
@@ -237,14 +277,16 @@ static KeySegment<Value> FindKeySegment(const Key* keys, unsigned int count,
     }
 
     segment.indices = FindSurroundingKeys(keys, count, time);
-    const auto first = segment.indices.previous;
-    const auto last = segment.indices.next;
+    const unsigned int first = segment.indices.previous;
+    const unsigned int last = segment.indices.next;
 
     segment.start = keys[first].value;
     segment.end = keys[last].value;
 
+    // Caluclate progress between keys
     const double duration = keys[last].timeTicks - keys[first].timeTicks;
     segment.factor = duration > 0.0 ? static_cast<float>((time - keys[first].timeTicks) / duration) : 0.0f;
+
     // Keep pose sampling independent of how often the scene is rendered.
     segment.n = std::max(1, int(std::ceil(duration / ticksPerSecond *
         TimingSettings::AnimationSamplesPerSecond)));
@@ -256,13 +298,14 @@ static KeySegment<Value> FindKeySegment(const Key* keys, unsigned int count,
 
 static VQS SampleVQS(const AnimationChannel* channel, double time,
     const glm::vec3& defaultPosition, const Quaternion& defaultRotation,
-    float defaultScale, double ticksPerSecond, InterpolationMode mode)
+    float defaultScale, double ticksPerSecond, 
+    InterpolationMode mode, RotationInterpolationState& rotationSampler)
 {
-    const auto position = FindKeySegment(channel->positions.data(),
+    const KeySegment<glm::vec3> position = FindKeySegment(channel->positions.data(),
         static_cast<unsigned int>(channel->positions.size()), time, defaultPosition, ticksPerSecond);
-    const auto rotation = FindKeySegment(channel->rotations.data(),
+    const KeySegment<Quaternion> rotation = FindKeySegment(channel->rotations.data(),
         static_cast<unsigned int>(channel->rotations.size()), time, defaultRotation, ticksPerSecond);
-    const auto scale = FindKeySegment(channel->scales.data(),
+    const KeySegment<float> scale = FindKeySegment(channel->scales.data(),
         static_cast<unsigned int>(channel->scales.size()), time, defaultScale, ticksPerSecond);
 
     const VQS start(position.start, rotation.start, scale.start);
@@ -278,36 +321,61 @@ static VQS SampleVQS(const AnimationChannel* channel, double time,
             const auto first = position.indices.previous;
             const auto last = position.indices.next;
             if (first > 0)
+            {
                 previousPosition = channel->positions[first - 1].value;
+            }
             if (last + 1 < channel->positions.size())
+            {
                 nextPosition = channel->positions[last + 1].value;
+            }
         }
         return VQS::Interpolate(VQS(previousPosition, rotation.start, scale.start),
             start, end, VQS(nextPosition, rotation.end, scale.end),
             position.factor, rotation.factor, scale.factor);
     }
 
+    const auto same = [](const Quaternion& a, const Quaternion& b) {
+        return a._s == b._s && a._x == b._x && a._y == b._y && a._z == b._z;
+    };
+
+    if (rotationSampler.n != rotation.n ||
+        !same(rotationSampler.start, rotation.start) ||
+        !same(rotationSampler.end, rotation.end))
+    {
+        rotationSampler.interpolation = ISlerpState{};
+        rotationSampler.start = rotation.start;
+        rotationSampler.end = rotation.end;
+        rotationSampler.n = rotation.n;
+    }
+
     return VQS::InterpolateIncremental(start, end,
-        position.n, position.k, rotation.n, rotation.k, scale.n, scale.k);
+        position.n, position.k, rotation.n, rotation.k, scale.n, scale.k,
+        rotationSampler.interpolation);
 }
 
 glm::mat4 Animator::SampleLocalTransform(const SkeletonNode* node,
-	const AnimationChannel* channel, double animationTime) const
+	const AnimationChannel* channel, double animationTime)
 {
+    // We can assume that there will be animations, but just for safety
+    // adding this check for code completeness
 	if (!channel)
 	{
 		return node->bindMatrix;
 	}
 
-    return SampleVQS(channel, animationTime, node->bindVQS._translation,
-        node->bindVQS._rotation, node->bindVQS._scale,
-        GetTicksPerSecond(), m_interpolationMode).ToMatrix();
+    return SampleVQS(channel, animationTime,
+        node->bindVQS._translation,
+        node->bindVQS._rotation,
+        node->bindVQS._scale,
+        GetTicksPerSecond(), m_interpolationMode, m_rotationSamplers[channel]).ToMatrix();
 }
 double Animator::GetFirstKeyTimeTicks() const
 {
     const AnimationClip* animation = GetAnimation();
     if (!animation)
+    {
         return 0.0;
+    }
 
     double firstKeyTime = 0.0;
     bool foundKey = false;

@@ -14,6 +14,8 @@
 #include <iomanip>
 #include "FrameLimiter.h"
 #include "TimingSettings.h"
+#include "Skinning.h"
+#include <assimp/Exporter.hpp>
 
 void Check(bool value, const char* message)
 {
@@ -99,9 +101,13 @@ void TestVQSSampling()
         VQS(glm::vec3(6,-2,5),Quaternion(1,0,0,0),1),
         0.5f, 0.25f, 0.25f);
     for (int column = 0; column < 4; ++column)
+    {
         for (int row = 0; row < 4; ++row)
-            Near(animator.GetNodeTransforms().at("joint")[column][row],
-                expected.ToMatrix()[column][row], "non-incremental independent track sampling");
+        {
+            Near(animator.GetNodeTransforms().at("joint")[column][row], expected.ToMatrix()[column][row],
+                 "non-incremental independent track sampling");
+        }
+    }
     Near(animator.GetNodeTransforms().at("joint")[3][1], 0.75, "non-incremental Bezier neighbors");
     animator.EvaluatePose(-1);
     Near(animator.GetNodeTransforms().at("joint")[3][0], -2, "non-incremental first boundary");
@@ -153,11 +159,42 @@ void TestVQSSampling()
 
 void TestVQSFactors()
 {
+    ISlerpState state;
+    const Quaternion unitStart(1,0,0,0);
+    const Quaternion targets[] = {Quaternion(0.5f,0.5f,0.5f,0.5f),
+        Quaternion(-0.5f,-0.5f,-0.5f,-0.5f), Quaternion(1,0.0001f,0,0),
+        Quaternion(0,0,0,2), unitStart};
+    const auto checkSample = [&](const Quaternion& end, int n, int k) {
+        const Quaternion actual = unitStart.ISlerp(unitStart, end, n, k, state);
+        const Quaternion expected = unitStart.Slerp(unitStart, end, float(k)/n);
+        Near(actual._s, expected._s, "cached ISlerp scalar");
+        Near(actual._x, expected._x, "cached ISlerp x");
+        Near(actual._y, expected._y, "cached ISlerp y");
+        Near(actual._z, expected._z, "cached ISlerp z");
+    };
+    for (const Quaternion& target : targets)
+    {
+        state = ISlerpState{};
+        for (int k = 0; k <= 10000; ++k) checkSample(target, 10000, k);
+        for (int k : {5000,5000,5001,9000,3,4,0,1,10000})
+            checkSample(target, 10000, k);
+        state = ISlerpState{};
+        for (int k = 0; k <= 60; ++k) checkSample(target, 60, k);
+        state = ISlerpState{};
+        checkSample(target, 1, 0);
+        checkSample(target, 1, 1);
+    }
+    bool invalidSample = false;
+    try { unitStart.ISlerp(unitStart, unitStart, 0, 0, state); }
+    catch (const std::invalid_argument&) { invalidSample = true; }
+    Check(invalidSample, "cached ISlerp rejects invalid subdivisions");
+
+    ISlerpState rotationState;
     const Quaternion q0(1,0,0,0), q1(0,0,0,1);
     for (int k : {0, 1, 30, 60})
     {
         const float u = float(k) / 60;
-        const Quaternion incremental = q0.ISlerp(q0,q1,60,k);
+        const Quaternion incremental = q0.ISlerp(q0,q1,60,k,rotationState);
         const Quaternion expected = q0.Slerp(q0,q1,u);
         Near(incremental._s,expected._s,"incremental rotation scalar");
         Near(incremental._z,expected._z,"incremental rotation vector");
@@ -204,6 +241,7 @@ void TestAnimationImport()
         clip->mTicksPerSecond = 0;
         clip->mNumChannels = 2;
         clip->mChannels = new aiNodeAnim*[2]{new aiNodeAnim(), new aiNodeAnim()};
+        clip->mChannels[1]->mNodeName = aiString("other");
         auto* channel = clip->mChannels[0];
         channel->mNodeName = aiString("scaled");
         channel->mNumPositionKeys = 2;
@@ -285,8 +323,8 @@ void TestNonuniformScaleRejected()
         Check(rejected, "nonuniform scale rejected with node and context");
     };
     scene.mRootNode->mTransformation.b2 = 2;
-    expectRejected("bind transform");
-    scene.mRootNode->mTransformation = aiMatrix4x4();
+    const AnimationData staticData = ImportAnimationData(&scene);
+    Near(staticData.root.bindMatrix[1][1], 2, "static nonuniform scale preserved");
     scene.mNumAnimations = 1;
     scene.mAnimations = new aiAnimation*[1]{new aiAnimation()};
     auto* clip = scene.mAnimations[0];
@@ -294,6 +332,8 @@ void TestNonuniformScaleRejected()
     clip->mChannels = new aiNodeAnim*[1]{new aiNodeAnim()};
     auto* channel = clip->mChannels[0];
     channel->mNodeName = aiString("scaled-node");
+    expectRejected("bind transform");
+    scene.mRootNode->mTransformation = aiMatrix4x4();
     channel->mNumScalingKeys = 2;
     channel->mScalingKeys = new aiVectorKey[2]{
         aiVectorKey(0, aiVector3D(1,1,1)), aiVectorKey(10, aiVector3D(2,3,2))};
@@ -318,19 +358,15 @@ void TestModelAssets(const char* snapshotPath)
         const aiScene* scene = importer.ReadFile(path, aiProcess_Triangulate |
             aiProcess_GenSmoothNormals | aiProcess_FlipUVs | aiProcess_JoinIdenticalVertices);
         Check(scene != nullptr, "load model asset");
-        AnimationData data;
-        try { data = ImportAnimationData(scene); }
-        catch (const std::runtime_error& error)
-        {
-            if (std::string(name) != "viking_C" || std::string(error.what()).find("'shield'") == std::string::npos) throw;
-            std::cout << "Rejected " << name << ": " << error.what() << '\n';
-            snapshot << "Rejected " << name << ": " << error.what() << '\n';
-            continue;
-        }
+        AnimationData data = ImportAnimationData(scene);
         std::vector<std::vector<aiMatrix4x4>> referenceOffsets(scene->mNumMeshes);
         for (unsigned int mesh = 0; mesh < scene->mNumMeshes; ++mesh)
+        {
             for (unsigned int bone = 0; bone < scene->mMeshes[mesh]->mNumBones; ++bone)
+            {
                 referenceOffsets[mesh].push_back(scene->mMeshes[mesh]->mBones[bone]->mOffsetMatrix);
+            }
+        }
         importer.FreeScene();
         Animator animator;
         animator.Reset(&data);
@@ -345,35 +381,46 @@ void TestModelAssets(const char* snapshotPath)
                 // Verify the GLM skinning product against Assimp's matrix multiplication
                 // and the original imported offsets. Production uses no Assimp matrices.
                 for (unsigned int mesh = 0; mesh < data.meshBones.size(); ++mesh)
+                {
                     for (unsigned int bone = 0; bone < data.meshBones[mesh].size(); ++bone)
                     {
-                        const auto& importedBone = data.meshBones[mesh][bone];
-                        const auto& nodeMatrix = animator.GetNodeTransforms().at(importedBone.name);
+                        const auto &importedBone = data.meshBones[mesh][bone];
+                        const auto &nodeMatrix = animator.GetNodeTransforms().at(importedBone.name);
                         const glm::mat4 finalMatrix = nodeMatrix * importedBone.offsetMatrix;
                         aiMatrix4x4 referenceNode;
                         for (int row = 0; row < 4; ++row)
+                        {
                             for (int column = 0; column < 4; ++column)
+                            {
                                 referenceNode[row][column] = nodeMatrix[column][row];
+                            }
+                        }
                         const aiMatrix4x4 referenceFinal = referenceNode * referenceOffsets[mesh][bone];
                         for (int row = 0; row < 4; ++row)
+                        {
                             for (int column = 0; column < 4; ++column)
                             {
                                 const float actual = finalMatrix[column][row];
                                 const float expected = referenceFinal[row][column];
-                                Check(std::isfinite(actual) && std::abs(actual - expected) <=
-                                    1e-5f * (1.0f + std::abs(expected)), "asset final bone matrix convention");
+                                Check(std::isfinite(actual) &&
+                                          std::abs(actual - expected) <= 1e-5f * (1.0f + std::abs(expected)),
+                                      "asset final bone matrix convention");
                             }
+                        }
                     }
+                }
                 for (const auto& node : animator.GetNodeTransforms())
                 {
                     snapshot << name << ' ' << clip << ' ' << time << ' ' << node.first;
                     for (int row = 0; row < 4; ++row)
+                    {
                         for (int column = 0; column < 4; ++column)
                         {
                             const float value = node.second[column][row];
                             Check(std::isfinite(value), "finite asset pose matrix");
                             snapshot << ' ' << value;
                         }
+                    }
                     snapshot << '\n';
                 }
             }
@@ -414,7 +461,9 @@ void TestPlaybackRanges()
          AnimationRange{340.0, 601.0},
          AnimationRange{0.0, std::numeric_limits<double>::infinity()},
          AnimationRange{std::numeric_limits<double>::quiet_NaN(), 363.0}})
+    {
         Check(!animator.SetPlaybackRange(invalid), "reject invalid range");
+    }
     Near(animator.GetSampleTimeTicks(), 350.0, "invalid range preserves clock");
     animator.Play();
     animator.Update(1.3);
@@ -455,9 +504,13 @@ void TestFrameRateIndependentPlayback()
             animator->Play();
         }
         for (int frame = 0; frame < 60 * 5; ++frame)
+        {
             at60.Update(1.0 / 60.0);
+        }
         for (int frame = 0; frame < 144 * 5; ++frame)
+        {
             at144.Update(1.0 / 144.0);
+        }
         Near(at144.GetSampleTimeTicks(), at60.GetSampleTimeTicks(),
             "render rate does not change animation playback");
     }
@@ -493,7 +546,9 @@ void TestPlaybackSpeed()
     Near(animator.GetSampleTimeTicks(), 357.0, "resume uses new speed");
     for (double invalid : {0.0, -1.0, std::numeric_limits<double>::infinity(),
          std::numeric_limits<double>::quiet_NaN()})
+    {
         Check(!animator.SetPlaybackSpeed(invalid), "reject invalid speed");
+    }
     Near(animator.GetPlaybackSpeed(), 3.0, "invalid speed preserves multiplier");
     animator.Update(std::numeric_limits<double>::max());
     Near(animator.GetSampleTimeTicks(), 357.0, "scaled delta overflow preserves position");
@@ -516,18 +571,276 @@ void MeasureFramePacing()
         1.0 / TimingSettings::TargetFramesPerSecond);
     auto start = FrameLimiter::Clock::now();
     for (int frame = 0; frame < frames; ++frame)
+    {
         std::this_thread::sleep_until(FrameLimiter::Clock::now() + frameDuration);
+    }
     const double oldSeconds = std::chrono::duration<double>(
         FrameLimiter::Clock::now() - start).count();
 
     FrameLimiter limiter(TimingSettings::TargetFramesPerSecond);
     start = FrameLimiter::Clock::now();
     for (int frame = 0; frame < frames; ++frame)
+    {
         limiter.Wait(FrameLimiter::Clock::now());
+    }
     const double newSeconds = std::chrono::duration<double>(
         FrameLimiter::Clock::now() - start).count();
     std::cout << "Frame pacing only (no rendering): old sleep = " << frames / oldSeconds
               << " FPS, high-resolution limiter = " << frames / newSeconds << " FPS\n";
+}
+
+void TestSkinning()
+{
+    BoneData weights;
+    weights.AddBoneData(0, 2.0f);
+    weights.AddBoneData(1, 6.0f);
+    weights.Normalize();
+    Near(weights.w[0], 0.25, "normalized first influence");
+    Near(weights.w[1], 0.75, "normalized second influence");
+    BoneData unweighted;
+    unweighted.Normalize();
+    Near(unweighted.w[0], 0, "unweighted vertex retains rigid fallback");
+    for (float invalid : {-1.0f, std::numeric_limits<float>::quiet_NaN()})
+    {
+        bool rejected = false;
+        try { unweighted.AddBoneData(0, invalid); }
+        catch (const std::runtime_error&) { rejected = true; }
+        Check(rejected, "reject invalid weights");
+    }
+    BoneData full;
+    for (int i = 0; i < 4; ++i)
+    {
+        full.AddBoneData(i, 1.0f);
+    }
+    bool rejected = false;
+    try { full.AddBoneData(4, 1.0f); }
+    catch (const std::runtime_error&) { rejected = true; }
+    Check(rejected, "checked influence overflow");
+
+    aiScene scene;
+    scene.mRootNode = new aiNode("root");
+    scene.mRootNode->mTransformation.a4 = 10;
+    scene.mRootNode->mNumChildren = 3;
+    scene.mRootNode->mChildren = new aiNode*[3]{new aiNode("joint"), new aiNode("mesh"), new aiNode("meshInstance")};
+    scene.mRootNode->mChildren[0]->mTransformation.b4 = 3;
+    auto* meshNode = scene.mRootNode->mChildren[1];
+    meshNode->mTransformation.a4 = 5;
+    meshNode->mNumMeshes = 2;
+    meshNode->mMeshes = new unsigned int[2]{0, 1};
+    scene.mRootNode->mChildren[2]->mNumMeshes = 1;
+    scene.mRootNode->mChildren[2]->mMeshes = new unsigned int[1]{0};
+    scene.mNumMeshes = 2;
+    scene.mMeshes = new aiMesh*[2]{new aiMesh(), new aiMesh()};
+    for (unsigned int i = 0; i < 2; ++i)
+    {
+        auto& mesh = *scene.mMeshes[i];
+        mesh.mNumBones = 1;
+        mesh.mBones = new aiBone*[1]{new aiBone()};
+        mesh.mBones[0]->mName = aiString("joint");
+        mesh.mBones[0]->mOffsetMatrix.a4 = 5 + i;
+        mesh.mBones[0]->mOffsetMatrix.b4 = -3;
+    }
+    const auto data = ImportAnimationData(&scene);
+    Check(data.meshInstances.size() == 3 && data.meshInstances[1].meshIndex == 1 &&
+        data.meshInstances[2].meshIndex == 0 && data.meshInstances[2].nodeName == "meshInstance",
+        "mesh references imported independently of geometry");
+    Animator animator;
+    animator.Reset(&data);
+    animator.EvaluatePose(0);
+    std::vector<glm::mat4> paletteA, paletteB;
+    BuildSkinPalette(data.meshBones[0], animator.GetNodeTransforms(), paletteA);
+    BuildSkinPalette(data.meshBones[1], animator.GetNodeTransforms(), paletteB);
+    const glm::vec4 vertex(2, 0, 0, 1);
+    Near((paletteA[0] * vertex).x, 7, "inverse root applied once");
+    Near((paletteA[0] * vertex).y, 0, "bind offset cancels joint translation");
+    Near((paletteB[0] * vertex).x, 8, "shared bone keeps separate offset");
+    const auto rigid = animator.GetNodeTransforms().at("mesh") * vertex;
+    Near(rigid.x, (paletteA[0] * vertex).x, "bind skinning equals rigid mesh node");
+    glm::mat4 secondInstance = animator.GetNodeTransforms().at("mesh");
+    secondInstance[3][0] += 20;
+    const glm::mat4 instanceDelta = SkinInstanceTransform(
+        animator.GetNodeTransforms().at("mesh"), secondInstance);
+    Near((instanceDelta * paletteA[0] * vertex).x, 27, "shared skinned geometry follows second instance");
+    auto pose = animator.GetNodeTransforms();
+    pose["joint"][3][0] += 4;
+    BuildSkinPalette(data.meshBones[0], pose, paletteA);
+    Near((paletteA[0] * vertex).x, 11, "animated bone translation deforms vertex");
+    pose["other"] = glm::mat4(1.0f);
+    pose["other"][3][0] = 8;
+    BuildSkinPalette({{"joint", glm::mat4(1.0f)}, {"other", glm::mat4(1.0f)}}, pose, paletteA);
+    const glm::vec4 blended = weights.w[0] * (paletteA[0] * vertex) +
+        weights.w[1] * (paletteA[1] * vertex);
+    Near(blended.x, 9, "two-bone hand calculated blend");
+    pose.erase("joint");
+    rejected = false;
+    try { BuildSkinPalette(data.meshBones[0], pose, paletteA); }
+    catch (const std::runtime_error&) { rejected = true; }
+    Check(rejected, "missing bone is a binding error");
+    meshNode->mMeshes[0] = 9;
+    rejected = false;
+    try { ImportAnimationData(&scene); }
+    catch (const std::runtime_error&) { rejected = true; }
+    Check(rejected, "invalid node mesh reference rejected");
+    meshNode->mMeshes[0] = 0;
+    scene.mRootNode->mChildren[2]->mName = aiString("joint");
+    rejected = false;
+    try { ImportAnimationData(&scene); }
+    catch (const std::runtime_error&) { rejected = true; }
+    Check(rejected, "ambiguous skinning node rejected");
+}
+
+void TestAssimpWeightLimit()
+{
+    // Round-trip a synthetic scene through Assimp so its real postprocessor runs.
+    aiScene source;
+    source.mRootNode = new aiNode("root");
+    source.mRootNode->mNumMeshes = 1;
+    source.mRootNode->mMeshes = new unsigned int[1]{0};
+    source.mNumMeshes = 1;
+    source.mMeshes = new aiMesh*[1]{new aiMesh()};
+    source.mNumMaterials = 1;
+    source.mMaterials = new aiMaterial*[1]{new aiMaterial()};
+    aiMesh& mesh = *source.mMeshes[0];
+    mesh.mPrimitiveTypes = aiPrimitiveType_TRIANGLE;
+    mesh.mNumVertices = 3;
+    mesh.mVertices = new aiVector3D[3]{aiVector3D(0,0,0), aiVector3D(1,0,0), aiVector3D(0,1,0)};
+    mesh.mNumFaces = 1;
+    mesh.mFaces = new aiFace[1];
+    mesh.mFaces[0].mNumIndices = 3;
+    mesh.mFaces[0].mIndices = new unsigned int[3]{0,1,2};
+    mesh.mNumBones = 5;
+    mesh.mBones = new aiBone*[5];
+    for (unsigned int i = 0; i < 5; ++i)
+    {
+        mesh.mBones[i] = new aiBone();
+        mesh.mBones[i]->mName = aiString("bone" + std::to_string(i));
+        mesh.mBones[i]->mNumWeights = 1;
+        mesh.mBones[i]->mWeights = new aiVertexWeight[1]{aiVertexWeight(0, float(i + 1) / 15)};
+    }
+    Assimp::Exporter exporter;
+    const auto* blob = exporter.ExportToBlob(&source, "assbin");
+    Check(blob != nullptr, "export synthetic Assimp weight fixture");
+    Assimp::Importer importer;
+    importer.SetPropertyInteger(AI_CONFIG_PP_LBW_MAX_WEIGHTS, 4);
+    const aiScene* processed = importer.ReadFileFromMemory(blob->data, blob->size,
+        aiProcess_LimitBoneWeights, "assbin");
+    Check(processed != nullptr, "import synthetic Assimp weight fixture");
+    int count = 0;
+    double sum = 0;
+    for (unsigned int i = 0; i < processed->mMeshes[0]->mNumBones; ++i)
+    {
+        const aiBone& bone = *processed->mMeshes[0]->mBones[i];
+        for (unsigned int j = 0; j < bone.mNumWeights; ++j)
+        {
+            Check(std::string(bone.mName.C_Str()) != "bone0", "Assimp drops smallest influence");
+            ++count;
+            sum += bone.mWeights[j].mWeight;
+        }
+    }
+    Check(count == 4, "Assimp limits influences to four");
+    Near(sum, 1, "Assimp renormalizes retained influences");
+}
+
+void TestAnimationChannelCache()
+{
+    AnimationData data;
+    data.hasRoot = true;
+    data.root.name = "joint";
+    data.root.bindMatrix[3][0] = 7.0f;
+    AnimationChannel channel;
+    channel.nodeName = "joint";
+    channel.positions = {{0, glm::vec3(2, 0, 0)}};
+    AnimationClip first;
+    first.channels.push_back(channel);
+    channel.positions[0].value.x = 99;
+    first.channels.push_back(channel);
+    AnimationClip second;
+    channel.positions[0].value.x = 4;
+    second.channels.push_back(channel);
+    data.clips = {first, second, AnimationClip{}};
+    Animator animator;
+    animator.Reset(&data);
+    animator.EvaluatePose(0);
+    Near(animator.GetNodeTransforms().at("joint")[3][0], 2, "cache preserves first duplicate channel");
+    Check(animator.SetAnimation(1), "switch cached clip");
+    animator.EvaluatePose(0);
+    Near(animator.GetNodeTransforms().at("joint")[3][0], 4, "cache uses selected clip");
+    Check(!animator.SetAnimation(99), "invalid cached clip rejected");
+    animator.EvaluatePose(0);
+    Near(animator.GetNodeTransforms().at("joint")[3][0], 4, "invalid selection preserves cache");
+    Check(animator.SetAnimation(2), "switch to clip without channels");
+    animator.EvaluatePose(0);
+    Near(animator.GetNodeTransforms().at("joint")[3][0], 7, "missing channel uses bind matrix");
+    Check(animator.SetAnimation(0), "switch back to first clip");
+    animator.EvaluatePose(0);
+    Near(animator.GetNodeTransforms().at("joint")[3][0], 2, "cache rebuilt on return to clip");
+    AnimationData replacement = data;
+    replacement.clips.clear();
+    animator.Reset(&replacement);
+    animator.EvaluatePose(0);
+    Near(animator.GetNodeTransforms().at("joint")[3][0], 7, "reset to another model clears cached channels");
+    animator.Reset();
+    animator.EvaluatePose(0);
+    Check(animator.GetNodeTransforms().empty(), "detached animator has no cached pose");
+}
+
+void TestSkeletonEndpoints()
+{
+    AnimationData data;
+    data.hasRoot = true;
+    data.root.name = "root";
+    data.root.bindMatrix[3][0] = 10.0f;
+    data.inverseRootMatrix[3][0] = -10.0f;
+    SkeletonNode parent;
+    parent.name = "parent";
+    parent.bindMatrix[3][1] = 1.0f;
+    SkeletonNode helper;
+    helper.name = "helper";
+    helper.bindMatrix[3][1] = 2.0f;
+    SkeletonNode child;
+    child.name = "child";
+    child.bindMatrix[3][0] = 2.0f;
+    helper.children.push_back(child);
+    parent.children.push_back(helper);
+    SkeletonNode sibling;
+    sibling.name = "sibling";
+    sibling.bindMatrix[3][2] = 3.0f;
+    parent.children.push_back(sibling);
+    data.root.children.push_back(parent);
+    data.meshBones = {{{"parent", glm::mat4(1.0f)}, {"child", glm::mat4(1.0f)},
+        {"sibling", glm::mat4(1.0f)}}, {{"child", glm::mat4(1.0f)}}};
+
+    Animator animator;
+    animator.Reset(&data);
+    animator.EvaluatePose(0.0);
+    const auto& endpoints = animator.GetSkeletonEndpoints();
+    Check(endpoints.size() == 4, "two bone edges, helpers and duplicate bindings excluded");
+    Near(endpoints[0].x, 0, "skeleton uses inverse-root coordinates");
+    Near(endpoints[0].y, 1, "first edge starts at parent bone");
+    Near(endpoints[1].x, 2, "bind-pose child position");
+    Near(endpoints[1].y, 3, "helper transform accumulated");
+    Near(endpoints[2].y, 1, "sibling edge uses its own nearest ancestor");
+    Near(endpoints[3].z, 3, "sibling endpoint");
+
+    AnimationClip clip;
+    clip.durationTicks = 25;
+    clip.ticksPerSecond = 25;
+    AnimationChannel channel;
+    channel.nodeName = "child";
+    channel.positions = {{0, glm::vec3(2, 0, 0)}, {25, glm::vec3(4, 0, 0)}};
+    clip.channels.push_back(channel);
+    data.clips.push_back(clip);
+    animator.Reset(&data);
+    animator.EvaluatePose(25.0);
+    Check(animator.GetSkeletonEndpoints().size() == 4, "animated bone edges retained");
+    Near(animator.GetSkeletonEndpoints()[1].x, 4, "endpoint follows animated pose");
+    animator.EvaluatePose(0.0);
+    Check(animator.GetSkeletonEndpoints().size() == 4, "evaluation replaces endpoints");
+    Near(animator.GetSkeletonEndpoints()[1].x, 2, "reevaluation restores child position");
+    animator.Reset();
+    Check(animator.GetSkeletonEndpoints().empty(), "reset clears endpoints");
+    animator.EvaluatePose(0.0);
+    Check(animator.GetSkeletonEndpoints().empty(), "empty animator has no endpoints");
 }
 
 int main(int argc, char** argv)
@@ -539,8 +852,15 @@ int main(int argc, char** argv)
             MeasureFramePacing();
             return 0;
         }
-        if (argc == 2) TestModelAssets(argv[1]);
+        if (argc == 2)
+        {
+            TestModelAssets(argv[1]);
+        }
+        TestAnimationChannelCache();
+        TestSkeletonEndpoints();
         TestNonuniformScaleRejected();
+        TestSkinning();
+        TestAssimpWeightLimit();
         TestAnimationImport();
         TestVQSSampling();
         TestVQSFactors();
@@ -600,9 +920,13 @@ int main(int argc, char** argv)
         animator.Update(1.0);
         animator.EvaluatePose(animator.GetSampleTimeTicks());
         for (int column = 0; column < 4; ++column)
+        {
             for (int row = 0; row < 4; ++row)
-                Near(animator.GetNodeTransforms().at("joint")[column][row],
-                    movingPose[column][row], "paused pose remains frozen");
+            {
+                Near(animator.GetNodeTransforms().at("joint")[column][row], movingPose[column][row],
+                     "paused pose remains frozen");
+            }
+        }
         animator.Play();
         animator.Update(0.25);
         animator.EvaluatePose(animator.GetSampleTimeTicks());
@@ -611,9 +935,13 @@ int main(int argc, char** argv)
         animator.Update(1.75);
         animator.EvaluatePose(animator.GetSampleTimeTicks());
         for (int column = 0; column < 4; ++column)
+        {
             for (int row = 0; row < 4; ++row)
-                Near(animator.GetNodeTransforms().at("joint")[column][row],
-                    movingPose[column][row], "loop returns to the same joint pose");
+            {
+                Near(animator.GetNodeTransforms().at("joint")[column][row], movingPose[column][row],
+                     "loop returns to the same joint pose");
+            }
+        }
         animator.EvaluatePose(25.0);
         Near(animator.GetNodeTransforms().at("joint")[3][0],1,"two-key linear quarter");
         animator.EvaluatePose(25.1);
