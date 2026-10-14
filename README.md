@@ -1,8 +1,4 @@
-Niko Bekris
-
-CS 560
-
-# Project 1: Hierarchical Modeling and Animation
+# Hierarchical Modeling and Animation
 
 Sections:
 
