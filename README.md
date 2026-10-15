@@ -36,7 +36,9 @@ See below for a screen shot of the application and menu:
 
 ## Description:
 
-This document describes the algorithms used for interpolation techniques in the animation/modeling project.
+My goal with this project is to become more familiar with some of the base algorithms responsible for animation in graphics programming. I implemented my own versions of quaternions and VQS structures, as well as some interpolation algorithms.
+
+This document describes the algorithms used for interpolation techniques in the animation/modeling project. You can then run the project yourself if you wish to see ther results.
 
 I’ll provide some screen shots with descriptions to show my reasoning for algorithm implementation.
 
