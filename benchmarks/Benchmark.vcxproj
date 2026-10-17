@@ -52,7 +52,6 @@
     <ClInclude Include="..\CS560Framework\Quaternion.h" />
     <ClInclude Include="..\CS560Framework\Benchmark.h" />
     <None Include="README.md" />
-    <None Include="BenchmarkSmokeTest.cpp" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
 </Project>

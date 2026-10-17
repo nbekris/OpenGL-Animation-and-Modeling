@@ -52,11 +52,3 @@ floating-point and link-time optimization settings with the application when
 measuring its behavior. Add future benchmark cases here, and keep experimental
 implementations outside production headers. The generic Benchmark.h remains
 independent of the cases and has no rendering or GLM dependencies.
-
-BenchmarkSmokeTest.cpp is a separate test entry point, excluded from the benchmark
-executable. To run it from a Developer Command Prompt:
-
-```bat
-cl /nologo /O2 /EHsc /std:c++14 /I CS560Framework benchmarks\BenchmarkSmokeTest.cpp /Fobenchmarks\build\ /Febenchmarks\build\BenchmarkSmokeTest.exe
-benchmarks\build\BenchmarkSmokeTest.exe
-```
