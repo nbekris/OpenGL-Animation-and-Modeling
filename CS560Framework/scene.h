@@ -18,6 +18,7 @@
 #include "gbuffer.h"
 #include "Mesh.h"
 #include "WireframeFloor.h"
+#include "Path.h"
 #include <array>
 #include <memory>
 
@@ -61,6 +62,12 @@ public:
     std::array<std::unique_ptr<Mesh>, 2> loadedModels;
     Shape* quad; //deferred shading
     WireframeFloor floor;
+
+	// Catmull-Rom Path that model follows
+    Path travelPath;
+	double pathParam = 0.0;
+	double pathLoopSeconds = 16.0;
+	bool pathLooping = true;
 
     //UI
     bool bone = true;

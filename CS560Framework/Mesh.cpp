@@ -107,7 +107,10 @@ void Mesh::LoadMesh(const std::string& path)
 
 glm::mat4 Mesh::GetModelTransform() const
 {
-	return Translate(0.f, 0.f, -2.5f) * Rotate(0, 90.f) * Scale(0.1f, 0.1f, 0.1f);
+    const glm::mat4 pathTranslation = Translate(m_pathOffset.x, m_pathOffset.y, m_pathOffset.z);
+    const glm::mat4 baseTransform = Translate(0.f, 0.f, -2.5f) * Rotate(0, 90.f) * Scale(0.1f, 0.1f, 0.1f);
+
+	return pathTranslation * baseTransform;
 }
 
 void Mesh::BuildFirstAnimationFrameSkeleton()

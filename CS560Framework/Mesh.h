@@ -26,10 +26,12 @@ public:
 
     Animator& GetAnimator() { return m_animator; }
     const AnimationData& GetAnimationData() const { return m_animationData; }
+    void SetPathOffset(const glm::vec3& offset) { m_pathOffset = offset; }
     bool SetAnimation(unsigned int index);
     // Refresh line endpoints from the pose already evaluated by the frame update.
     void UpdateSkeletonPose();
     void UpdateSkinningPose();
+
     Mesh(const Mesh&) = delete;
     Mesh& operator=(const Mesh&) = delete;
 private:
@@ -50,6 +52,7 @@ private:
     GLint m_meshNodeLocation = -1;
     GLint m_modelLocation = -1;
     ModelMaterials m_materials;
+	glm::vec3 m_pathOffset{ 0.0f, 0.0f, 0.0f };
 
     struct DrawRange
     {

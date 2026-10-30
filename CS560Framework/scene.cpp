@@ -376,6 +376,22 @@ void Scene::DrawScene()
     const double deltaSeconds = now - previousFrameTime;
     previousFrameTime = now;
 
+	/////////// Path Following //////////////////////////
+    // Move model along path based on elapsed time then apply position
+    if (pathLooping && pathLoopSeconds > 0.0) 
+    {
+        // determine how fast to move through segments
+		const double segmentsPerSecond = static_cast<double>(travelPath.points.size()) / pathLoopSeconds;
+
+        // We shouldnt have to wrap again
+        // if there is a bug around looping along path add another wrap step here
+        pathParam += deltaSeconds * segmentsPerSecond;
+    }
+
+    model->SetPathOffset(travelPath.Position(pathParam));
+
+    /////////////// Animation /////////////////////////
+	// Animate the model and evaluate the pose at the current playback position.
     Animator& animator = model->GetAnimator();
     animator.Update(deltaSeconds);
 
@@ -387,7 +403,6 @@ void Scene::DrawScene()
     {
         model->Draw(programId);
     }
-
 
     gBuffer.UnbindFBO();
     gBufferProgram->UnuseShader();
