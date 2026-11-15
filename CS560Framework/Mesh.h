@@ -25,8 +25,10 @@ public:
     void MakeVAO();
 
     Animator& GetAnimator() { return m_animator; }
+    glm::mat4 GetModelTransform() const;
     const AnimationData& GetAnimationData() const { return m_animationData; }
     void SetPathOffset(const glm::vec3& offset) { m_pathOffset = offset; }
+    void SetPathYawDegrees(float yaw) { m_pathYawDegrees = yaw; }
     bool SetAnimation(unsigned int index);
     // Refresh line endpoints from the pose already evaluated by the frame update.
     void UpdateSkeletonPose();
@@ -43,8 +45,8 @@ private:
     void ReleaseGpuResources();
     void BuildFirstAnimationFrameSkeleton();
     void PrintBoneCoords(std::vector<glm::vec3> endpoints);
-    glm::mat4 GetModelTransform() const;
 
+    float m_pathYawDegrees = 0.0f;
     GLuint m_vao = 0;
     std::vector<GLuint> m_buffers;
     GLuint m_skinBuffer = 0;

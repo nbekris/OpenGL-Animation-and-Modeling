@@ -52,6 +52,8 @@ public:
     double GetFirstKeyTimeTicks() const;
     void EvaluatePose(double timeTicks);
 
+    void SetCyclePhase(double phase);
+
     const std::map<std::string, glm::mat4>& GetNodeTransforms() const { return m_nodeTransforms; }
     const std::vector<glm::vec3>& GetSkeletonEndpoints() const { return m_skeletonEndpoints; }
 private:

@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>Catmull–Rom path debugger</title>
+<style>
+body{margin:24px;background:#101725;color:#e6edf7;font:16px system-ui}canvas{width:100%;height:60vh;background:#172236;border-radius:12px}button,select,input{margin:8px;padding:6px}#scrub{width:50%}pre{white-space:pre-wrap}p{color:#b8c7dc}
+</style>
+<h1>Catmull–Rom path debugger</h1>
+<p>Samples from your compiled Path.cpp · orange: control polygon · cyan: curve · white: moving position and tangent</p>
+<button id="play">Pause</button>
+<label>Projection <select id="projection"><option>XY</option><option>XZ</option><option>YZ</option></select></label>
+<label>Loop seconds <input id="seconds" type="number" min="0.1" step="0.5"></label>
+<br><label>Path parameter <input id="scrub" type="range" min="0" step="0.001" value="0"></label>
+<canvas id="plot"></canvas><pre id="status"></pre><p id="checks"></p>
+<p>The displayed marker interpolates dense C++ samples. Tangents use finite differences; a small nonzero mismatch is expected. Equal parameter increments do not imply constant world-space speed. Rerun the script after changing the C++ path.</p>
+<script>
+const data=__PATH_DATA__;
+const canvas=document.querySelector('#plot'),ctx=canvas.getContext('2d');
+const slider=document.querySelector('#scrub'),seconds=document.querySelector('#seconds');
+const projection=document.querySelector('#projection'),button=document.querySelector('#play');
+const n=data.points.length, steps=(data.samples.length-1)/n;
+slider.max=n;seconds.value=data.seconds;
+let s=0,playing=true,previous;
+button.onclick=()=>{playing=!playing;button.textContent=playing?'Pause':'Play';};
+slider.oninput=()=>{s=Number(slider.value);playing=false;button.textContent='Play';};
+document.querySelector('#checks').textContent=`Maximum errors — control points: ${data.positionError.toExponential(3)} | loop wrapping: ${data.wrapError.toExponential(3)} | estimated tangent mismatch (including seam): ${data.tangentError.toExponential(3)}`;
+function sample(t){const q=((t%n)+n)%n*steps,i=Math.floor(q),u=q-i;return data.samples[i].map((v,k)=>v*(1-u)+data.samples[i+1][k]*u);}
+function draw(time){
+ if(previous!==undefined&&playing){const duration=Number(seconds.value);if(Number.isFinite(duration)&&duration>0)s=(s+(time-previous)/1000*n/duration)%n;}
+ previous=time;slider.value=s;
+ const dpr=devicePixelRatio||1,w=canvas.clientWidth,h=canvas.clientHeight;
+ if(canvas.width!==Math.round(w*dpr)||canvas.height!==Math.round(h*dpr)){canvas.width=Math.round(w*dpr);canvas.height=Math.round(h*dpr);}
+ ctx.setTransform(dpr,0,0,dpr,0,0);ctx.clearRect(0,0,w,h);
+ const axes={XY:[0,1],XZ:[0,2],YZ:[1,2]}[projection.value];
+ const bounds=axes.map(a=>{const v=[...data.samples,...data.points].map(p=>p[a]);return [Math.min(...v),Math.max(...v)];});
+ const scale=Math.max(1,Math.min((w-100)/Math.max(1,bounds[0][1]-bounds[0][0]),(h-100)/Math.max(1,bounds[1][1]-bounds[1][0])));
+ const screen=p=>[w/2+(p[axes[0]]-(bounds[0][0]+bounds[0][1])/2)*scale,h/2-(p[axes[1]]-(bounds[1][0]+bounds[1][1])/2)*scale];
+ function line(points,color,dashed=false){ctx.beginPath();ctx.strokeStyle=color;ctx.lineWidth=2;ctx.setLineDash(dashed?[6,6]:[]);points.forEach((p,i)=>{const [x,y]=screen(p);i?ctx.lineTo(x,y):ctx.moveTo(x,y);});ctx.stroke();ctx.setLineDash([]);}
+ line([...data.points,data.points[0]],'#f6b65b',true);line(data.samples,'#54d9eb');
+ ctx.font='14px system-ui';data.points.forEach((p,i)=>{const[x,y]=screen(p);ctx.fillStyle='#f6b65b';ctx.beginPath();ctx.arc(x,y,5,0,Math.PI*2);ctx.fill();ctx.fillText('P'+i,x+9,y-9);});
+ const p=sample(s),before=sample(s-.005),after=sample(s+.005),tangent=after.map((v,k)=>(v-before[k])/.01);
+ const length=Math.hypot(...tangent);if(length>1e-8)line([p,p.map((v,k)=>v+tangent[k]/length*1.5)],'white');
+ const[x,y]=screen(p);ctx.fillStyle='white';ctx.beginPath();ctx.arc(x,y,7,0,Math.PI*2);ctx.fill();
+ document.querySelector('#status').textContent=`s = ${s.toFixed(3)}   segment = ${Math.floor(s)%n}   u = ${(s%1).toFixed(3)}\nPosition = (${p.map(v=>v.toFixed(3)).join(', ')})\nEstimated speed = ${(length*n/Number(seconds.value)).toFixed(3)} world units / second`;
+ requestAnimationFrame(draw);
+}
+document.addEventListener('visibilitychange',()=>{previous=undefined;});requestAnimationFrame(draw);
+</script></html>

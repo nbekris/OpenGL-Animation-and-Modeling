@@ -135,6 +135,22 @@ void Animator::Update(double deltaSeconds)
         : 0.0;
 }
 
+// Set the time within one animation cycle using distance traveled along the path
+void Animator::SetCyclePhase(double phase)
+{
+    if (!GetAnimation() || !std::isfinite(phase))
+        return;
+
+    const AnimationRange range = GetPlaybackRange();
+    const double duration = (range.endTicks - range.startTicks) / GetTicksPerSecond();
+    if (duration <= 0.0)
+        return;
+
+    // wrap phase to [0,1), then convert it to animation seconds
+    phase -= std::floor(phase);
+    m_playbackSeconds = phase * duration;
+}
+
 double Animator::GetSampleTimeTicks() const
 {
     const AnimationRange range = GetPlaybackRange();
@@ -232,9 +248,9 @@ static bool TrySampleBoundary(const Key* keys, unsigned int keyCount, double tim
 template <typename Key>
 static KeyIndices FindSurroundingKeys(const Key* keys, unsigned int keyCount, double time)
 {
-    // Binary Search to find key times
 	unsigned int low = 1;
 	unsigned int high = keyCount - 1;
+
 	while (low < high)
 	{
 		const unsigned int middle = low + (high - low) / 2;
@@ -247,6 +263,7 @@ static KeyIndices FindSurroundingKeys(const Key* keys, unsigned int keyCount, do
 			high = middle;
 		}
 	}
+
 	return {low - 1, low};
 }
 

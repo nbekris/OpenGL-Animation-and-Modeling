@@ -29,26 +29,26 @@
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'" Label="Configuration">
     <ConfigurationType>Application</ConfigurationType>
     <UseDebugLibraries>true</UseDebugLibraries>
-    <PlatformToolset>v143</PlatformToolset>
+    <PlatformToolset>v145</PlatformToolset>
     <CharacterSet>Unicode</CharacterSet>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'" Label="Configuration">
     <ConfigurationType>Application</ConfigurationType>
     <UseDebugLibraries>false</UseDebugLibraries>
-    <PlatformToolset>v143</PlatformToolset>
+    <PlatformToolset>v145</PlatformToolset>
     <WholeProgramOptimization>true</WholeProgramOptimization>
     <CharacterSet>Unicode</CharacterSet>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" Label="Configuration">
     <ConfigurationType>Application</ConfigurationType>
     <UseDebugLibraries>true</UseDebugLibraries>
-    <PlatformToolset>v143</PlatformToolset>
+    <PlatformToolset>v145</PlatformToolset>
     <CharacterSet>Unicode</CharacterSet>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'" Label="Configuration">
     <ConfigurationType>Application</ConfigurationType>
     <UseDebugLibraries>false</UseDebugLibraries>
-    <PlatformToolset>v143</PlatformToolset>
+    <PlatformToolset>v145</PlatformToolset>
     <WholeProgramOptimization>true</WholeProgramOptimization>
     <CharacterSet>Unicode</CharacterSet>
   </PropertyGroup>
@@ -149,9 +149,11 @@
     <ClCompile Include="AnimationData.cpp" />
     <ClCompile Include="Mesh.cpp" />
     <ClCompile Include="Path.cpp" />
+    <ClCompile Include="PathDebugger.cpp" />
     <ClCompile Include="Quaternion.cpp">
       <LanguageStandard>stdcpp17</LanguageStandard>
     </ClCompile>
+    <ClCompile Include="LocomotionController.cpp" />
     <ClCompile Include="scene.cpp" />
     <ClCompile Include="shader.cpp" />
     <ClCompile Include="shapes.cpp" />
@@ -169,7 +171,9 @@
     <ClInclude Include="LineRenderer.h" />
     <ClInclude Include="Animator.h" />
     <ClInclude Include="InterpolationMode.h" />
+    <ClInclude Include="MotionProfile.h" />
     <ClInclude Include="Path.h" />
+    <ClInclude Include="PathDebugger.h" />
     <ClInclude Include="TimingSettings.h" />
     <ClInclude Include="FrameLimiter.h" />
     <ClInclude Include="AnimationPresets.h" />
@@ -177,6 +181,7 @@
     <ClInclude Include="Mesh.h" />
     <ClInclude Include="Skinning.h" />
     <ClInclude Include="Quaternion.h" />
+    <ClInclude Include="LocomotionController.h" />
     <ClInclude Include="scene.h" />
     <ClInclude Include="shader.h" />
     <ClInclude Include="shapes.h" />

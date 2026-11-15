@@ -21,6 +21,7 @@ using namespace gl;
 #include "framework.h"
 #include "AnimationPresets.h"
 #include "TimingSettings.h"
+#include <cmath>
 //#include "shapes.h"
 #include "texture.h"
 #include "transform.h"
@@ -30,6 +31,8 @@ const float rad = PI/180.0f;
 
 namespace
 {
+    constexpr int RunPresetIndex = 2;
+
     const char* ModelNames[] = { "Roman", "Viking" };
     const char* ModelPaths[] = { "fbx/fbx/roman_D.fbx", "fbx/fbx/viking_C.fbx" };
 }
@@ -58,6 +61,11 @@ bool Scene::SelectModel(int index)
         selectedModel = index;
         selectedAnimationPreset = 0;
         modelLoadError.clear();
+        if (synchronizeLocomotion && !ConfigureLocomotion())
+        {
+            synchronizeLocomotion = false;
+            model->GetAnimator().Pause();
+        }
         return true;
     }
     catch (const std::exception& error)
@@ -67,8 +75,74 @@ bool Scene::SelectModel(int index)
     }
 }
 
+bool Scene::ConfigureLocomotion()
+{
+    if (!model)
+        return false;
+
+    Animator& animator = model->GetAnimator();
+    if (!animator.SetPlaybackRange(AnimationPresets[RunPresetIndex].range))
+    {
+        locomotion.SetPlaying(false);
+        modelLoadError = "The Run range is invalid for this model";
+        return false;
+    }
+
+    selectedAnimationPreset = RunPresetIndex;
+    // distance controls the animation clock while following the path
+    animator.SetPlaybackSpeed(1.0);
+    animator.Pause();
+    auto settings = locomotion.GetSettings();
+    settings.strideWorld = strideWorld[selectedModel];
+    settings.assetForwardYawDegrees = assetForwardYawDegrees[selectedModel];
+    locomotion.SetSettings(settings, travelPath);
+    locomotion.SeekDistance(locomotion.GetSample().distance, travelPath);
+    animator.SetCyclePhase(locomotion.GetSample().gaitPhase);
+    modelLoadError.clear();
+    return true;
+}
+
+void Scene::DrawLocomotionMenu()
+{
+    auto settings = locomotion.GetSettings();
+    double distance = locomotion.GetSample().distance;
+    bool playing = locomotion.IsPlaying();
+    const bool scrubbed = pathDebugger.DrawMenu(
+        travelPath, distance, settings.loopSeconds, playing);
+
+    float a = static_cast<float>(settings.easeInEnd);
+    float b = static_cast<float>(settings.easeOutStart);
+    if (ImGui::SliderFloat("Ease-in end", &a, 0.05f, b - 0.05f, "%.2f", ImGuiSliderFlags_AlwaysClamp))
+        settings.easeInEnd = a;
+    if (ImGui::SliderFloat("Ease-out start", &b, a + 0.05f, 0.95f, "%.2f", ImGuiSliderFlags_AlwaysClamp))
+        settings.easeOutStart = b;
+
+    ImGui::SliderFloat("Stride per cycle", &strideWorld[selectedModel],
+        0.05f, 20.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp);
+    ImGui::SliderFloat("Look-ahead distance", &settings.lookAheadWorld,
+        0.01f, 3.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp);
+    ImGui::SliderFloat("Asset forward heading", &assetForwardYawDegrees[selectedModel],
+        -180.0f, 180.0f, "%.1f deg", ImGuiSliderFlags_AlwaysClamp);
+
+    // the menu edits settings, the controller handles clocks and pose changes
+    settings.strideWorld = strideWorld[selectedModel];
+    settings.assetForwardYawDegrees = assetForwardYawDegrees[selectedModel];
+    locomotion.SetPlaying(playing);
+    locomotion.SetSettings(settings, travelPath);
+    if (scrubbed)
+        locomotion.SeekDistance(distance, travelPath);
+    if (ImGui::Button("Restart locomotion"))
+        locomotion.Restart(travelPath);
+
+    const auto& sample = locomotion.GetSample();
+    ImGui::Text("Travel speed: %.3f units/s", sample.speed);
+    ImGui::Text("Gait rate: %.3f cycles/s", sample.speed / locomotion.GetSettings().strideWorld);
+}
+
 void Scene::ReleaseModels()
 {
+    // Release debug buffers while the OpenGL context is still alive.
+    pathDebugger.Release();
     model = nullptr;
     for (auto& cached : loadedModels)
     {
@@ -155,6 +229,7 @@ void Scene::InitializeScene()
 
     quad = new Quad();
     floor.Initialize();
+    pathDebugger.Initialize(travelPath);
 
     for (int index = 0; index < IM_ARRAYSIZE(ModelPaths); ++index)
     {
@@ -207,6 +282,21 @@ void Scene::DrawMenu()
 
     Animator& animator = model->GetAnimator();
 
+    if (ImGui::Checkbox("Synchronize path and gait", &synchronizeLocomotion))
+    {
+        if (synchronizeLocomotion)
+        {
+            if (!ConfigureLocomotion())
+                synchronizeLocomotion = false;
+        }
+        else
+        {
+            locomotion.SetPlaying(false);
+            animator.SetPlaybackSpeed(1.0);
+            animator.Play();
+        }
+    }
+
     // Imgui logic for handling selection between incremental and non incremental interpolation algorithms
     int interpolationIndex = animator.GetInterpolationMode() == InterpolationMode::Incremental ? 1 : 0;
     const char* interpolationNames[] = { "Slerp", "iSlerp" };
@@ -216,32 +306,35 @@ void Scene::DrawMenu()
                                                               : InterpolationMode::Incremental);
     }
 
-    if (ImGui::Button(animator.IsPlaying() ? "Pause" : "Play"))
+    if (!synchronizeLocomotion)
     {
-        if (animator.IsPlaying())
+        if (ImGui::Button(animator.IsPlaying() ? "Pause" : "Play"))
         {
-            animator.Pause();
+            if (animator.IsPlaying())
+            {
+                animator.Pause();
+            }
+
+            else
+            {
+                animator.Play();
+            }
         }
 
-        else
+        // Animation speed selection
+        // Implemented to try and check results with the sample project
+        float speed = static_cast<float>(animator.GetPlaybackSpeed());
+        if (ImGui::SliderFloat("Animation speed", &speed, 0.1f, 3.0f, "%.2fx",
+            ImGuiSliderFlags_AlwaysClamp))
         {
-            animator.Play();
+            animator.SetPlaybackSpeed(speed);
         }
-    }
 
-    // Animation speed selection
-    // Implemented to try and check results with the sample project
-    float speed = static_cast<float>(animator.GetPlaybackSpeed());
-    if (ImGui::SliderFloat("Animation speed", &speed, 0.1f, 3.0f, "%.2fx",
-        ImGuiSliderFlags_AlwaysClamp))
-    {
-        animator.SetPlaybackSpeed(speed);
-    }
-
-    ImGui::SameLine();
-    if (ImGui::Button("Normal speed"))
-    {
-        animator.SetPlaybackSpeed(1.0);
+        ImGui::SameLine();
+        if (ImGui::Button("Normal speed"))
+        {
+            animator.SetPlaybackSpeed(1.0);
+        }
     }
 
     ImGui::Text("Range elapsed: %.3f seconds / Clip tick: %.3f",
@@ -251,33 +344,39 @@ void Scene::DrawMenu()
     ImGui::SameLine();
     ImGui::Checkbox("Draw Mesh", &mesh);
 
-    // Build animation selection drop down menu
-    // Implementation is a little weird because we had to manually figure out
-    // animation payback ranges.
-    const AnimationPreset& current = AnimationPresets[selectedAnimationPreset];
-    if (ImGui::BeginCombo("Animation", current.name))
+    if (synchronizeLocomotion)
+        DrawLocomotionMenu();
+
+    if (!synchronizeLocomotion)
     {
-        for (int index = 0; index < IM_ARRAYSIZE(AnimationPresets); ++index)
+        // Build animation selection drop down menu
+        // Implementation is a little weird because we had to manually figure out
+        // animation payback ranges.
+        const AnimationPreset& current = AnimationPresets[selectedAnimationPreset];
+        if (ImGui::BeginCombo("Animation", current.name))
         {
-            const bool selected = index == selectedAnimationPreset;
-            const AnimationPreset& preset = AnimationPresets[index];
-
-            ImGui::PushID(static_cast<int>(index));
-            if (ImGui::Selectable(preset.name, selected) &&
-                animator.SetPlaybackRange(preset.range))
+            for (int index = 0; index < IM_ARRAYSIZE(AnimationPresets); ++index)
             {
-                selectedAnimationPreset = index;
-                animator.Play();
-            }
+                const bool selected = index == selectedAnimationPreset;
+                const AnimationPreset& preset = AnimationPresets[index];
 
-            if (selected)
-            {
-                ImGui::SetItemDefaultFocus();
-            }
+                ImGui::PushID(static_cast<int>(index));
+                if (ImGui::Selectable(preset.name, selected) &&
+                    animator.SetPlaybackRange(preset.range))
+                {
+                    selectedAnimationPreset = index;
+                    animator.Play();
+                }
 
-            ImGui::PopID();
+                if (selected)
+                {
+                    ImGui::SetItemDefaultFocus();
+                }
+
+                ImGui::PopID();
+            }
+            ImGui::EndCombo();
         }
-        ImGui::EndCombo();
     }
 
     ImGui::End();
@@ -376,25 +475,19 @@ void Scene::DrawScene()
     const double deltaSeconds = now - previousFrameTime;
     previousFrameTime = now;
 
-	/////////// Path Following //////////////////////////
-    // Move model along path based on elapsed time then apply position
-    if (pathLooping && pathLoopSeconds > 0.0) 
+    /////////// Path Following //////////////////////////
+    Animator& animator = model->GetAnimator();
+    if (synchronizeLocomotion)
     {
-        // determine how fast to move through segments
-		const double segmentsPerSecond = static_cast<double>(travelPath.points.size()) / pathLoopSeconds;
-
-        // We shouldnt have to wrap again
-        // if there is a bug around looping along path add another wrap step here
-        pathParam += deltaSeconds * segmentsPerSecond;
+        const auto sample = locomotion.Update(deltaSeconds, travelPath);
+        model->SetPathOffset(sample.position);
+        model->SetPathYawDegrees(sample.yawDegrees);
+        animator.SetCyclePhase(sample.gaitPhase);
     }
-
-    model->SetPathOffset(travelPath.Position(pathParam));
+    else
+        animator.Update(deltaSeconds);
 
     /////////////// Animation /////////////////////////
-	// Animate the model and evaluate the pose at the current playback position.
-    Animator& animator = model->GetAnimator();
-    animator.Update(deltaSeconds);
-
     // Evaluate even while paused so the current playback position defines the pose.
     animator.EvaluatePose(animator.GetSampleTimeTicks());
     model->UpdateSkinningPose();
@@ -464,5 +557,8 @@ void Scene::DrawScene()
     {
         model->DrawSkeleton(*basicShader, WorldProj, WorldView);
     }
+
+    pathDebugger.Draw(travelPath, locomotion.GetSample().pathParam, model->GetModelTransform(),
+        *basicShader, WorldProj, WorldView);
 
 }

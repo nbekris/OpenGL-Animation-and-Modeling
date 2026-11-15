@@ -10,6 +10,16 @@ Interpolations Algorithms
 
 Animating Bones and Mesh
 
+## Building
+
+Open `CS560Framework.sln` in Visual Studio with the Desktop development with C++ workload and a Windows SDK installed. Select **x64** and build Debug or Release; the bundled libraries are 64-bit. The project uses the default C++ toolset from your Visual Studio installation.
+
+From a Visual Studio Developer Command Prompt:
+
+```bat
+msbuild CS560Framework.sln /m /p:Configuration=Debug /p:Platform=x64
+```
+
 ## Instructions for Running Application:
 
 Hold Left click to rotate around the scene to inspect different angles of the model and animations.

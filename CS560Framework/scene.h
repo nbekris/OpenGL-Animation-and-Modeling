@@ -19,6 +19,8 @@
 #include "Mesh.h"
 #include "WireframeFloor.h"
 #include "Path.h"
+#include "PathDebugger.h"
+#include "LocomotionController.h"
 #include <array>
 #include <memory>
 
@@ -65,9 +67,13 @@ public:
 
 	// Catmull-Rom Path that model follows
     Path travelPath;
-	double pathParam = 0.0;
-	double pathLoopSeconds = 16.0;
-	bool pathLooping = true;
+    PathDebugger pathDebugger;
+    LocomotionController locomotion;
+    bool synchronizeLocomotion = true;
+    // estimated from planted toe motion in the Run clip, Roman then Viking
+    std::array<float, 2> strideWorld{ 11.7f, 12.6f };
+    // both assets face -Y after the fixed rotation in GetModelTransform
+    std::array<float, 2> assetForwardYawDegrees{ -90.0f, -90.0f };
 
     //UI
     bool bone = true;
@@ -90,5 +96,7 @@ public:
     void BuildTransforms();
     void DrawMenu();
     void DrawScene();
+    bool ConfigureLocomotion();
+    void DrawLocomotionMenu();
 
 };

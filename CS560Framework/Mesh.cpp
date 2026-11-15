@@ -110,7 +110,8 @@ glm::mat4 Mesh::GetModelTransform() const
     const glm::mat4 pathTranslation = Translate(m_pathOffset.x, m_pathOffset.y, m_pathOffset.z);
     const glm::mat4 baseTransform = Translate(0.f, 0.f, -2.5f) * Rotate(0, 90.f) * Scale(0.1f, 0.1f, 0.1f);
 
-	return pathTranslation * baseTransform;
+    // turn around world Z before placing the model on the path
+    return pathTranslation * Rotate(2, m_pathYawDegrees) * baseTransform;
 }
 
 void Mesh::BuildFirstAnimationFrameSkeleton()
