@@ -21,6 +21,7 @@ using namespace gl;
 #include "framework.h"
 #include "AnimationPresets.h"
 #include "TimingSettings.h"
+#include "MotionProfile.h"
 #include <cmath>
 //#include "shapes.h"
 #include "texture.h"
@@ -102,6 +103,82 @@ bool Scene::ConfigureLocomotion()
     return true;
 }
 
+// Builds a straight approach spline from the current offset to the target vicinity.
+void Scene::BeginApproach(float stopDistance)
+{
+    if (!model || !std::isfinite(stopDistance) || !ConfigureLocomotion())
+        return;
+    synchronizeLocomotion = true;
+    approachActive = true;
+    approachAlreadyNear = false;
+    arrivalYawDegrees = locomotion.GetSample().yawDegrees;
+    const glm::vec3 start = locomotion.GetSample().position;
+    glm::vec3 targetGround = target.position;
+    targetGround.z = start.z;
+    const glm::vec3 offset = targetGround - start;
+    const float distance = glm::length(offset);
+    stopDistance = (std::max)(0.0f, stopDistance);
+    if (distance <= stopDistance || distance < 1e-5f)
+    {
+        approachAlreadyNear = true;
+        locomotion.SetPlaying(false);
+        return;
+    }
+    const glm::vec3 end = targetGround - offset / distance * stopDistance;
+    travelPath.closed = false;
+    for (std::size_t i = 0; i < travelPath.points.size(); ++i)
+    {
+        const float t = float(i) / float(travelPath.points.size() - 1);
+        travelPath.points[i] = start + t * (end - start);
+    }
+    travelPath.RebuildArcLengthTables();
+    pathDebugger.Initialize(travelPath);
+    locomotion.Restart(travelPath);
+    locomotion.SetPlaying(true);
+}
+
+// Fades the running pose into standing and turns toward the cube at arrival.
+void Scene::UpdateApproach(double deltaSeconds)
+{
+    Animator& animator = model->GetAnimator();
+    if (!synchronizeLocomotion || !approachActive)
+    {
+        standingWeight = 0.0f;
+        animator.SetPoseBlend(standingPoseTicks, 0.0f);
+        return;
+    }
+    const auto& sample = locomotion.GetSample();
+    const auto& settings = locomotion.GetSettings();
+    const double length = travelPath.TotalLength();
+    const bool arrived = approachAlreadyNear || (!travelPath.closed && sample.distance >= length);
+    const double progress = length > 1e-6 ? sample.distance / length : 1.0;
+    const double time = MotionProfile::TimeAtDistance(progress, settings.easeInEnd, settings.easeOutStart);
+    float desiredWeight = arrived ? 1.0f : static_cast<float>((std::max)(0.0,
+        (time - settings.easeOutStart) / (1.0 - settings.easeOutStart)));
+    desiredWeight = desiredWeight * desiredWeight * (3.0f - 2.0f * desiredWeight);
+    const float dt = std::isfinite(deltaSeconds) ? static_cast<float>((std::max)(0.0, deltaSeconds)) : 0.0f;
+    const float blendStep = dt / 0.4f;
+    standingWeight += (std::max)(-blendStep, (std::min)(blendStep, desiredWeight - standingWeight));
+    animator.SetPoseBlend(standingPoseTicks, standingWeight);
+
+    if (!arrived)
+        arrivalYawDegrees = sample.yawDegrees;
+    else
+    {
+        glm::vec3 direction = target.position - sample.position;
+        direction.z = 0.0f;
+        if (glm::dot(direction, direction) > 1e-8f)
+        {
+            const float desiredYaw = glm::degrees(std::atan2(direction.y, direction.x))
+                - settings.assetForwardYawDegrees;
+            const float difference = std::remainder(desiredYaw - arrivalYawDegrees, 360.0f);
+            const float turnStep = 180.0f * dt;
+            arrivalYawDegrees += (std::max)(-turnStep, (std::min)(turnStep, difference));
+        }
+        model->SetPathYawDegrees(arrivalYawDegrees);
+    }
+}
+
 void Scene::DrawLocomotionMenu()
 {
     auto settings = locomotion.GetSettings();
@@ -130,18 +207,58 @@ void Scene::DrawLocomotionMenu()
     locomotion.SetPlaying(playing);
     locomotion.SetSettings(settings, travelPath);
     if (scrubbed)
+    {
+        approachAlreadyNear = false;
         locomotion.SeekDistance(distance, travelPath);
+    }
     if (ImGui::Button("Restart locomotion"))
+    {
+        approachAlreadyNear = false;
         locomotion.Restart(travelPath);
+    }
 
     const auto& sample = locomotion.GetSample();
     ImGui::Text("Travel speed: %.3f units/s", sample.speed);
     ImGui::Text("Gait rate: %.3f cycles/s", sample.speed / locomotion.GetSettings().strideWorld);
 }
 
+void Scene::BuildCube()
+{
+    // Unit cube centered at the origin.
+    const glm::vec3 corners[] = {
+        { -0.5f, -0.5f, -0.5f }, // 0
+        { 0.5f, -0.5f, -0.5f }, // 1
+        { 0.5f,  0.5f, -0.5f }, // 2
+        { -0.5f,  0.5f, -0.5f }, // 3
+        { -0.5f, -0.5f,  0.5f }, // 4
+        { 0.5f, -0.5f,  0.5f }, // 5
+        { 0.5f,  0.5f,  0.5f }, // 6
+        { -0.5f,  0.5f,  0.5f }  // 7
+    };
+
+    const int edges[][2] = {
+        { 0, 1 },{ 1, 2 },{ 2, 3 },{ 3, 0 }, // Bottom
+        { 4, 5 },{ 5, 6 },{ 6, 7 },{ 7, 4 }, // Top
+        { 0, 4 },{ 1, 5 },{ 2, 6 },{ 3, 7 }  // Vertical
+    };
+
+    std::vector<glm::vec3> endpoints;
+    endpoints.reserve(24);
+
+    for (const auto& edge : edges)
+    {
+        endpoints.push_back(corners[edge[0]]);
+        endpoints.push_back(corners[edge[1]]);
+    }
+
+    targetLines = std::make_unique<LineRenderer>();
+    targetLines->SetLines(endpoints);
+}
+
 void Scene::ReleaseModels()
 {
     // Release debug buffers while the OpenGL context is still alive.
+    targetLines.reset();
     pathDebugger.Release();
     model = nullptr;
     for (auto& cached : loadedModels)
@@ -160,7 +277,6 @@ void Scene::InitCamera()
     tilt = 15.0;
     eye = glm::vec3(0.0, -20.0, 10.0);
     speed = 300.0 / 30.0;
-    last_time = glfwGetTime();
     tr = glm::vec3(0.0, -3.0, 25.0);
 
     ry = 0.4f;
@@ -229,6 +345,9 @@ void Scene::InitializeScene()
 
     quad = new Quad();
     floor.Initialize();
+
+    // create target cube
+    BuildCube();
     pathDebugger.Initialize(travelPath);
 
     for (int index = 0; index < IM_ARRAYSIZE(ModelPaths); ++index)
@@ -243,7 +362,6 @@ void Scene::InitializeScene()
     }
     SelectModel(0);
 
-    previousFrameTime = glfwGetTime();
 }
 
 void Scene::DrawMenu()
@@ -379,6 +497,25 @@ void Scene::DrawMenu()
         }
     }
 
+    ImGui::DragFloat3("Target Position", &target.position.x, 0.05f);
+    ImGui::SliderFloat("Stopping distance", &approachStopDistance, 0.0f, 20.0f);
+    if (ImGui::Button("Approach target"))
+        BeginApproach(approachStopDistance);
+    ImGui::SameLine();
+    if (ImGui::Button("Restore loop"))
+    {
+        approachActive = false;
+        approachAlreadyNear = false;
+        travelPath = Path{};
+        pathDebugger.Initialize(travelPath);
+        locomotion.Restart(travelPath);
+    }
+    ImGui::TextWrapped("Approach uses the current target position in XY. Click again after moving the cube.");
+    ImGui::SliderFloat("Standing pose tick", &standingPoseTicks, 0.0f, 339.0f);
+    if (approachActive)
+        ImGui::Text("Standing blend: %.0f%%", standingWeight * 100.0f);
+    ImGui::TextWrapped("Arrows: move X/Y. Page Up/Down: move Z. Shift: fine movement.");
+
     ImGui::End();
 
 
@@ -387,12 +524,9 @@ void Scene::DrawMenu()
 
 }
 
-void Scene::BuildTransforms()
+void Scene::BuildTransforms(double deltaSeconds)
 {
-    const double now = glfwGetTime();
-    const double deltaSeconds = now - last_time;
     const float dist = static_cast<float>(deltaSeconds * speed);
-    last_time = now;
     if (key == GLFW_KEY_KP_8)
     {
         tr[1] -= dist;
@@ -442,12 +576,12 @@ void Scene::BuildTransforms()
 
 }
 
-void Scene::DrawScene()
+void Scene::DrawScene(double deltaSeconds)
 {
     glfwGetFramebufferSize(window, &width, &height);
     glViewport(0, 0, width, height);
 
-    BuildTransforms();
+    BuildTransforms(deltaSeconds);
 
     WorldInverse = glm::inverse(WorldView);
 
@@ -471,9 +605,25 @@ void Scene::DrawScene()
     loc = glGetUniformLocation(programId, "WorldView");
     glUniformMatrix4fv(loc, 1, GL_FALSE, Pntr(WorldView));
 
-    const double now = glfwGetTime();
-    const double deltaSeconds = now - previousFrameTime;
-    previousFrameTime = now;
+    /////////// Target Object ///////////////////////////
+    if (!ImGui::GetIO().WantCaptureKeyboard &&
+        glfwGetWindowAttrib(window, GLFW_FOCUSED))
+    {
+        auto held = [this](int keyCode) {
+            return glfwGetKey(window, keyCode) == GLFW_PRESS;
+        };
+
+        float step = moveSpeed * static_cast<float>(deltaSeconds);
+        if (held(GLFW_KEY_LEFT_SHIFT) || held(GLFW_KEY_RIGHT_SHIFT))
+            step *= 0.1f;
+
+        if (held(GLFW_KEY_LEFT))      target.position.x -= step;
+        if (held(GLFW_KEY_RIGHT))     target.position.x += step;
+        if (held(GLFW_KEY_DOWN))      target.position.y -= step;
+        if (held(GLFW_KEY_UP))        target.position.y += step;
+        if (held(GLFW_KEY_PAGE_DOWN)) target.position.z -= step;
+        if (held(GLFW_KEY_PAGE_UP))   target.position.z += step;
+    }
 
     /////////// Path Following //////////////////////////
     Animator& animator = model->GetAnimator();
@@ -489,6 +639,7 @@ void Scene::DrawScene()
 
     /////////////// Animation /////////////////////////
     // Evaluate even while paused so the current playback position defines the pose.
+    UpdateApproach(deltaSeconds);
     animator.EvaluatePose(animator.GetSampleTimeTicks());
     model->UpdateSkinningPose();
     model->UpdateSkeletonPose();
@@ -560,5 +711,14 @@ void Scene::DrawScene()
 
     pathDebugger.Draw(travelPath, locomotion.GetSample().pathParam, model->GetModelTransform(),
         *basicShader, WorldProj, WorldView);
+
+    if (targetLines)
+    {
+        glm::mat4 targetTransform =
+            Translate(target.position.x, target.position.y, target.position.z)
+            * Scale(target.size, target.size, target.size);
+        targetLines->Draw(*basicShader, WorldProj, WorldView, targetTransform,
+            glm::vec3(1.0f, 0.8f, 0.1f));
+    }
 
 }

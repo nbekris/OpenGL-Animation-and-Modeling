@@ -24,7 +24,7 @@ bool PathDebugger::DrawMenu(const Path& travelPath, double& pathDistance,
         ImGui::Checkbox("Show control polygon", &showControlPolygon);
         ImGui::Checkbox("Play locomotion", &pathLooping);
         float seconds = static_cast<float>(pathLoopSeconds);
-        if (ImGui::SliderFloat("Loop seconds", &seconds, 1.f, 60.f))
+        if (ImGui::SliderFloat("Travel seconds", &seconds, 1.f, 60.f))
             pathLoopSeconds = seconds;
         const double length = travelPath.TotalLength();
         float distance = length > 0.0 ? static_cast<float>(pathDistance / length) : 0.0f;
@@ -61,7 +61,7 @@ void PathDebugger::Initialize(const Path& travelPath)
     for (auto& lines : pathDebugLines) lines = std::make_unique<LineRenderer>();
     std::vector<glm::vec3> curve, polygon, markers, start;
     const int count = static_cast<int>(travelPath.points.size());
-    const int samples = count * 64;
+    const int samples = travelPath.SegmentCount() * 64;
     for (int i = 0; i < samples; ++i)
     {
         curve.push_back(travelPath.Position(double(i) / 64.0));
@@ -70,8 +70,11 @@ void PathDebugger::Initialize(const Path& travelPath)
     for (int i = 0; i < count; ++i)
     {
         const auto p = travelPath.points[i];
-        polygon.push_back(p);
-        polygon.push_back(travelPath.points[(i + 1) % count]);
+        if (travelPath.closed || i + 1 < count)
+        {
+            polygon.push_back(p);
+            polygon.push_back(travelPath.points[(i + 1) % count]);
+        }
         auto& endpoints = i == 0 ? start : markers;
         constexpr int segments = 32;
         constexpr float radius = 0.6f;

@@ -13,6 +13,8 @@ void Animator::Reset(const AnimationData* data)
     m_interpolationMode = InterpolationMode::Incremental;
     m_hasPlaybackRange = false;
     m_playing = false;
+    m_blendWeight = 0.0f;
+    m_blendTargetTicks = 0.0;
     m_nodeTransforms.clear();
     m_skeletonEndpoints.clear();
     m_boneNames.clear();
@@ -158,6 +160,16 @@ double Animator::GetSampleTimeTicks() const
     return durationTicks > 0.0
         ? range.startTicks + std::fmod(m_playbackSeconds * GetTicksPerSecond(), durationTicks)
         : 0.0;
+}
+
+// Configures the standing-pose overlay without changing the gait playback clock.
+void Animator::SetPoseBlend(double targetTicks, float weight)
+{
+    if (!std::isfinite(targetTicks) || !std::isfinite(weight))
+        return;
+    const auto* clip = GetAnimation();
+    m_blendTargetTicks = (std::max)(0.0, (std::min)(clip ? clip->durationTicks : 0.0, targetTicks));
+    m_blendWeight = (std::max)(0.0f, (std::min)(1.0f, weight));
 }
 
 void Animator::EvaluatePose(double timeTicks)
@@ -380,11 +392,21 @@ glm::mat4 Animator::SampleLocalTransform(const SkeletonNode* node,
 		return node->bindMatrix;
 	}
 
-    return SampleVQS(channel, animationTime,
+    const VQS base = SampleVQS(channel, animationTime,
         node->bindVQS._translation,
         node->bindVQS._rotation,
         node->bindVQS._scale,
-        GetTicksPerSecond(), m_interpolationMode, m_rotationSamplers[channel]).ToMatrix();
+        GetTicksPerSecond(), m_interpolationMode, m_rotationSamplers[channel]);
+    if (m_blendWeight <= 0.0f)
+        return base.ToMatrix();
+    RotationInterpolationState targetSampler;
+    const VQS target = SampleVQS(channel, m_blendTargetTicks,
+        node->bindVQS._translation, node->bindVQS._rotation, node->bindVQS._scale,
+        GetTicksPerSecond(), InterpolationMode::NonIncremental, targetSampler);
+    // Blend local components, then let EvaluateNode rebuild the global hierarchy.
+    return VQS(glm::mix(base._translation, target._translation, m_blendWeight),
+        base._rotation.Slerp(base._rotation, target._rotation, m_blendWeight),
+        base._scale + (target._scale - base._scale) * m_blendWeight).ToMatrix();
 }
 double Animator::GetFirstKeyTimeTicks() const
 {

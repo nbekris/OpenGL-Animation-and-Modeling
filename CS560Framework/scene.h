@@ -21,6 +21,7 @@
 #include "Path.h"
 #include "PathDebugger.h"
 #include "LocomotionController.h"
+#include "LineRenderer.h"
 #include <array>
 #include <memory>
 
@@ -38,17 +39,26 @@ public:
     glm::vec3 lightCol = {1.0f, 1.0f, 1.0f};
     glm::vec3 lightDir = {1.0f, -1.0f, -1.0f};
 
+    // The target position is the center of the wireframe cube.
+    struct TargetObject
+    {
+        glm::vec3 position{0.0f, 0.0f, 2.0f};
+        float size = 0.5f;
+    };
+
+    TargetObject target;
+    std::unique_ptr<LineRenderer> targetLines;
+
+    float moveSpeed = 5.0f;
+
     //buffer
     GBuffer gBuffer;
     unsigned int id, bindpoint;
-
-    double previousFrameTime = 0.0;
 
     int key;
     float spin, tilt, speed, ry, front, back;
     glm::vec3 eye;
     glm::vec3 tr;
-    double last_time;
     int mode; 
 
     
@@ -93,10 +103,24 @@ public:
     void InitializeScene();
     bool SelectModel(int index);
     void ReleaseModels();
-    void BuildTransforms();
+    void BuildTransforms(double deltaSeconds);
     void DrawMenu();
-    void DrawScene();
+    void DrawScene(double deltaSeconds);
     bool ConfigureLocomotion();
     void DrawLocomotionMenu();
+    // Builds an open ground-plane route ending near the target cube.
+    void BeginApproach(float stopDistance);
+    float approachStopDistance = 3.0f;
+    // Blends to standing during arrival and smoothly faces the target after stopping.
+    void UpdateApproach(double deltaSeconds);
+    bool approachActive = false;
+    bool approachAlreadyNear = false;
+    float standingWeight = 0.0f;
+    float standingPoseTicks = 0.0f;
+    float arrivalYawDegrees = 0.0f;
+
+    // Target Object helper function
+    // Builds the cube
+    void BuildCube();
 
 };

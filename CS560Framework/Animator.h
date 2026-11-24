@@ -51,6 +51,8 @@ public:
     double GetSampleTimeTicks() const;
     double GetFirstKeyTimeTicks() const;
     void EvaluatePose(double timeTicks);
+    // Sets a local-pose blend toward a fixed sample in the current animation.
+    void SetPoseBlend(double targetTicks, float weight);
 
     void SetCyclePhase(double phase);
 
@@ -77,6 +79,8 @@ private:
     bool m_hasPlaybackRange = false;
 
     bool m_playing = false;
+    double m_blendTargetTicks = 0.0;
+    float m_blendWeight = 0.0f;
 
     std::map<std::string, glm::mat4> m_nodeTransforms;
     std::set<std::string> m_boneNames;

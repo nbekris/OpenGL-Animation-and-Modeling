@@ -47,12 +47,20 @@ public:
 
 	glm::vec3 Position(double pathParam) const;
 
+    bool closed = true;
+
+    // Returns the number of spline segments for the current topology.
+    int SegmentCount() const
+    {
+        return static_cast<int>(points.size()) - (closed ? 0 : 1);
+    }
+
 	// Call again after changing control points.
 	void RebuildArcLengthTables();
 	float TotalLength() const { return totalLength; }
-	// Convert normalized distance [0,1] to evaluator parameter [0,N].
+	// Convert normalized distance [0,1] to evaluator parameter [0,SegmentCount()].
 	float ParameterAtDistance(float distance) const;
-	// Convert evaluator parameter [0,N] to normalized distance [0,1].
+	// Convert evaluator parameter [0,SegmentCount()] to normalized distance [0,1].
 	float NormalizedDistanceAtParameter(double parameter) const;
 
 private:

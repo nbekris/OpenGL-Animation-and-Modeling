@@ -5,20 +5,26 @@
 // Convert a position along the path into a 3D coordinate
 glm::vec3 Path::Position(double pathParam) const
 {
-	const int numControlPoints = static_cast<int>(points.size());
+    const int count = static_cast<int>(points.size());
+    const int segments = SegmentCount();
+    double parameter = pathParam;
+    if (closed)
+    {
+        parameter = std::fmod(parameter, double(segments));
+        if (parameter < 0.0) parameter += segments;
+    }
+    else
+        parameter = (std::max)(0.0, (std::min)(double(segments), parameter));
+    const int segment = (std::min)(static_cast<int>(std::floor(parameter)), segments - 1);
+    const float u = static_cast<float>(parameter - segment);
 
-	// Wrap so that model can loop the path
-	double wrappedParam = std::fmod(pathParam, double(numControlPoints));
-	if (wrappedParam < 0.0) wrappedParam += numControlPoints;
-
-	const int segment = static_cast<int>(std::floor(wrappedParam));
-	const float u = static_cast<float>(wrappedParam - segment);
-
-	// helper for accessing control points with wrapping
-	const auto point = [&](int index) -> const glm::vec3& {
-		return points[(index + numControlPoints) % numControlPoints];
-	};
-
+    // Extrapolate open endpoint neighbors to preserve their tangents.
+    const auto point = [&](int index) -> glm::vec3 {
+        if (closed) return points[(index + count) % count];
+        if (index < 0) return 2.0f * points.front() - points[1];
+        if (index >= count) return 2.0f * points.back() - points[count - 2];
+        return points[index];
+    };
 	return EvaluateSegment(
 		point(segment - 1),
 		point(segment),
@@ -29,7 +35,7 @@ glm::vec3 Path::Position(double pathParam) const
 // Build normalized segment tables and a length-weighted global table.
 void Path::RebuildArcLengthTables()
 {
-	const int N = static_cast<int>(points.size());
+	const int N = SegmentCount();
 	const ArcBuildSettings settings;
 
 	// clear previous results
@@ -139,7 +145,7 @@ float Path::ParameterAtDistance(float distance) const
 	distance = std::max(0.0f, std::min(1.0f, distance));
 
 	// Handle endpoints
-	const float N = static_cast<float>(points.size());
+	const float N = static_cast<float>(SegmentCount());
 	if (distance <= 0.0f) return 0.0f;
 	if (distance >= 1.0f) return N;
 
@@ -171,7 +177,7 @@ float Path::NormalizedDistanceAtParameter(double parameter) const
 	if (pathTable.size() < 2 || totalLength <= 0.0f)
 		return 0.0f;
 
-	const double N = static_cast<double>(points.size());
+	const double N = static_cast<double>(SegmentCount());
 	if (parameter <= 0.0) return 0.0f;
 	if (parameter >= N) return 1.0f;
 	const float q = static_cast<float>(parameter / N);

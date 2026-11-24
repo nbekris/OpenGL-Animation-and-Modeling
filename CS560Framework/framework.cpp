@@ -56,11 +56,15 @@ int main()
 
     // Enter the event loop.
     FrameLimiter frameLimiter(TimingSettings::TargetFramesPerSecond);
+    double previousFrameTime = glfwGetTime();
     while (!glfwWindowShouldClose(scene.window)) {
         const auto frameStart = FrameLimiter::Clock::now();
+        const double now = glfwGetTime();
+        const double deltaSeconds = now - previousFrameTime;
+        previousFrameTime = now;
         glfwPollEvents();
 
-        scene.DrawScene();
+        scene.DrawScene(deltaSeconds);
         scene.DrawMenu();
         glfwSwapBuffers(scene.window);
         frameLimiter.Wait(frameStart);

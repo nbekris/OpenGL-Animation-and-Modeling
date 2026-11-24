@@ -53,6 +53,40 @@ int main()
             Near(area, 1, 1e-7, "velocity integral");
         }
 
+        // Verify local blending preserves a child's bone length under rotation.
+        AnimationData blendData;
+        blendData.hasRoot = true;
+        blendData.root.name = "root";
+        SkeletonNode child;
+        child.name = "child";
+        child.bindMatrix[3] = glm::vec4(2, 0, 0, 1);
+        blendData.root.children.push_back(child);
+        AnimationClip blendClip;
+        blendClip.durationTicks = 10;
+        blendClip.ticksPerSecond = 1;
+        AnimationChannel channel;
+        channel.nodeName = "root";
+        channel.positions = {{0, glm::vec3(0)}, {10, glm::vec3(10, 0, 0)}};
+        channel.rotations = {{0, Quaternion(1, 0, 0, 0)}, {10, Quaternion(0, 0, 0, 1)}};
+        channel.scales = {{0, 1.0f}, {10, 1.0f}};
+        blendClip.channels.push_back(channel);
+        blendData.clips.push_back(blendClip);
+        Animator blendAnimator;
+        blendAnimator.Reset(&blendData);
+        blendAnimator.SetPoseBlend(10, 0.5f);
+        blendAnimator.EvaluatePose(0);
+        auto transforms = blendAnimator.GetNodeTransforms();
+        Near(transforms.at("root")[3].x, 5, 1e-5, "blend translation");
+        Near(glm::length(glm::vec3(transforms.at("child")[3] - transforms.at("root")[3])),
+            2, 1e-5, "blend preserves bone length");
+        Near(std::abs(transforms.at("child")[3].y), 2, 1e-5, "blend interpolates rotation");
+        blendAnimator.SetPoseBlend(10, 1);
+        blendAnimator.EvaluatePose(0);
+        Near(blendAnimator.GetNodeTransforms().at("child")[3].x, 8, 1e-5, "full standing pose");
+        blendAnimator.SetPoseBlend(10, 0);
+        blendAnimator.EvaluatePose(0);
+        Near(blendAnimator.GetNodeTransforms().at("child")[3].x, 2, 1e-5, "disable standing blend");
+
         AnimationData data;
         data.clips.push_back({});
         data.clips[0].durationTicks = 500;
@@ -156,7 +190,35 @@ int main()
         const glm::vec3 coi = path.Position(path.ParameterAtDistance(float(.75 / length)));
         Check(glm::length(coi - start) > 1e-4, "COI direction at rest");
 
-        std::cout << "PASS: profile math, controller pause/resume, seeking, settings, COI, loop seams, phase sampling, 30/60/144 FPS\n";
+        Path approach;
+        approach.closed = false;
+        for (std::size_t i = 0; i < approach.points.size(); ++i)
+            approach.points[i] = glm::vec3(3.0f + float(i) * 2.0f, 4.0f, 0.0f);
+        approach.RebuildArcLengthTables();
+        Near(approach.TotalLength(), 14.0, 1e-4, "open path length");
+        Near(glm::length(approach.Position(-1) - approach.points.front()), 0, 1e-5, "open start clamp");
+        Near(glm::length(approach.Position(99) - approach.points.back()), 0, 1e-5, "open end clamp");
+        Near(approach.ParameterAtDistance(1), 7, 1e-6, "open parameter endpoint");
+        Near(approach.NormalizedDistanceAtParameter(7), 1, 1e-6, "open distance endpoint");
+        LocomotionController arrival;
+        arrival.Restart(approach);
+        arrival.Update(100, approach);
+        Check(!arrival.IsPlaying(), "open path stops playback");
+        Near(glm::length(arrival.GetSample().position - approach.points.back()), 0, 1e-5, "arrival position");
+        Near(arrival.GetSample().speed, 0, 0, "arrival speed");
+        Near(arrival.GetSample().yawDegrees, 90, 1e-4, "arrival heading");
+        const double arrivalPhase = arrival.GetSample().gaitPhase;
+        arrival.Update(100, approach);
+        Near(arrival.GetSample().distance, 14, 1e-4, "arrival does not wrap");
+        Near(arrival.GetSample().gaitPhase, arrivalPhase, 0, "arrival holds gait");
+        arrival.SeekDistance(7, approach);
+        arrival.Update(1, approach);
+        Near(arrival.GetSample().distance, 7, 0, "open paused seek");
+        arrival.SetPlaying(true);
+        arrival.Update(100, approach);
+        Near(arrival.GetSample().distance, 14, 1e-4, "open resume arrival");
+
+        std::cout << "PASS: profile math, controller pause/resume, seeking, settings, COI, loop seams, phase sampling, 30/60/144 FPS, open path arrival\n";
         return 0;
     }
     catch (const std::exception& error)

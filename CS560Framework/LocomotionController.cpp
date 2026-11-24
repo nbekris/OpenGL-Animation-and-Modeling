@@ -6,10 +6,13 @@
 
 namespace
 {
-    // convert world distance to a position, wrapping at the end of the closed path
+    // Converts distance to a position, wrapping closed paths and clamping open paths.
     glm::vec3 PointAtDistance(const Path& path, double distance)
     {
         const double length = path.TotalLength();
+        if (!path.closed)
+            return path.Position(path.ParameterAtDistance(static_cast<float>(
+                (std::max)(0.0, (std::min)(length, distance)) / length)));
         double wrapped = std::fmod(distance, length);
         if (wrapped < 0.0)
             wrapped += length;
@@ -83,6 +86,26 @@ LocomotionSample LocomotionController::Update(double deltaSeconds, const Path& p
         !std::isfinite(m_travelSeconds + deltaSeconds))
         return m_sample;
 
+    if (!path.closed)
+    {
+        const double oldDistance = m_sample.distance;
+        if (m_playing)
+            m_travelSeconds = (std::min)(m_travelSeconds + deltaSeconds, m_settings.loopSeconds);
+        const auto profile = MotionProfile::Evaluate(m_travelSeconds / m_settings.loopSeconds,
+            m_settings.easeInEnd, m_settings.easeOutStart);
+        // Preserve exact seek positions during paused or zero-time updates.
+        if (m_playing && deltaSeconds > 0.0)
+            m_sample.distance = length * profile.distance;
+        if (m_playing)
+            m_sample.speed = length / m_settings.loopSeconds * profile.velocity;
+        m_sample.gaitPhase += (std::max)(0.0, m_sample.distance - oldDistance) / m_settings.strideWorld;
+        m_sample.gaitPhase -= std::floor(m_sample.gaitPhase);
+        if (m_travelSeconds >= m_settings.loopSeconds)
+            SetPlaying(false);
+        SamplePath(path);
+        return m_sample;
+    }
+
     const double oldDistance = MotionProfile::TotalDistance(m_travelSeconds,
         m_settings.loopSeconds, length, m_settings.easeInEnd, m_settings.easeOutStart);
     if (m_playing)
@@ -120,6 +143,9 @@ void LocomotionController::SamplePath(const Path& path)
     // W = P(s + lookAhead) - P(s), using arc length instead of the spline parameter
     const double lookAhead = (std::min)(double(m_settings.lookAheadWorld), 0.05 * length);
     glm::vec3 forward = PointAtDistance(path, m_sample.distance + lookAhead) - m_sample.position;
+    // Use the incoming tangent when the open path has no remaining look-ahead.
+    if (!path.closed && glm::dot(forward, forward) <= 1e-10f)
+        forward = m_sample.position - PointAtDistance(path, m_sample.distance - lookAhead);
     forward.z = 0.0f;
     if (glm::dot(forward, forward) > 1e-10f)
     {
