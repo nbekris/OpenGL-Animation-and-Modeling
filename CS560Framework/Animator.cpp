@@ -1,8 +1,10 @@
+#define GLM_FORCE_RADIANS
 #include "Animator.h"
 #include "VQS.h"
 #include "TimingSettings.h"
 #include <cmath>
 #include <algorithm>
+#include <glm/gtc/matrix_transform.hpp>
 
 void Animator::Reset(const AnimationData* data)
 {
@@ -18,6 +20,7 @@ void Animator::Reset(const AnimationData* data)
     m_nodeTransforms.clear();
     m_skeletonEndpoints.clear();
     m_boneNames.clear();
+    m_poseNodes.clear();
     CacheAnimationChannels();
     if (m_data)
     {
@@ -29,6 +32,8 @@ void Animator::Reset(const AnimationData* data)
             }
         }
     }
+    if (m_data && m_data->hasRoot)
+        IndexPoseNodes(&m_data->root, -1, -1);
 }
 
 const AnimationClip* Animator::GetAnimation() const
@@ -172,38 +177,41 @@ void Animator::SetPoseBlend(double targetTicks, float weight)
     m_blendWeight = (std::max)(0.0f, (std::min)(1.0f, weight));
 }
 
+// Samples animation once, then publishes the composed hierarchy.
 void Animator::EvaluatePose(double timeTicks)
+{
+    for (auto& node : m_poseNodes)
+        node.local = SampleLocalTransform(node.source,
+            FindAnimationChannel(node.source->name), timeTicks);
+    RebuildGlobalPose();
+}
+
+// Retains every imported node and records its nearest skeletal ancestor.
+void Animator::IndexPoseNodes(const SkeletonNode* node, int parent, int parentBone)
+{
+    const int index = static_cast<int>(m_poseNodes.size());
+    const bool bone = m_boneNames.count(node->name) != 0;
+    m_poseNodes.push_back({node, parent, parentBone, bone});
+    for (const auto& child : node->children)
+        IndexPoseNodes(&child, index, bone ? index : parentBone);
+}
+
+// Recomputes transforms and skeleton lines from the current editable local pose.
+void Animator::RebuildGlobalPose()
 {
     m_nodeTransforms.clear();
     m_skeletonEndpoints.clear();
-    if (m_data && m_data->hasRoot)
+    for (auto& node : m_poseNodes)
     {
-        EvaluateNode(&m_data->root, glm::mat4(1.0f), timeTicks, false, glm::vec3(0.0f));
-    }
-
-}
-
-void Animator::EvaluateNode(const SkeletonNode* node, const glm::mat4& parentTransform, double timeTicks,
-    bool hasParentBone, const glm::vec3& parentBonePosition)
-{
-    const std::string name(node->name);
-    const glm::mat4 global =
-        parentTransform * SampleLocalTransform(node, FindAnimationChannel(name), timeTicks);
-
-    const glm::mat4 transform = m_data->inverseRootMatrix * global;
-    m_nodeTransforms[name] = transform;
-    const glm::vec3 position(transform[3]);
-    const bool isBone = m_boneNames.count(name) != 0;
-    if (isBone && hasParentBone)
-    {
-        m_skeletonEndpoints.push_back(parentBonePosition);
-        m_skeletonEndpoints.push_back(position);
-    }
-    for (unsigned int i = 0; i < node->children.size(); ++i)
-    {
-        // Helper nodes affect transforms, but lines connect actual bones.
-        EvaluateNode(&node->children[i], global, timeTicks, isBone || hasParentBone,
-            isBone ? position : parentBonePosition);
+        node.global = (node.parent < 0 ? glm::mat4(1) : m_poseNodes[node.parent].global) * node.local;
+        const glm::mat4 transform = m_data->inverseRootMatrix * node.global;
+        m_nodeTransforms[node.source->name] = transform;
+        if (node.bone && node.parentBone >= 0)
+        {
+            m_skeletonEndpoints.push_back(glm::vec3(
+                m_data->inverseRootMatrix * m_poseNodes[node.parentBone].global[3]));
+            m_skeletonEndpoints.push_back(glm::vec3(transform[3]));
+        }
     }
 }
 

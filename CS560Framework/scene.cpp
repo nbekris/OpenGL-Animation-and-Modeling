@@ -59,6 +59,10 @@ bool Scene::SelectModel(int index)
             }
         }
         model = replacement;
+        ikChain = InverseKinematics::FindRightHandChain(model->GetAnimator());
+        ikSettings = InverseKinematics::CreateSettings(model->GetAnimator(), ikChain);
+        ikWeight = 0.0f;
+        ikResult = CCDResult{};
         selectedModel = index;
         selectedAnimationPreset = 0;
         modelLoadError.clear();
@@ -140,6 +144,7 @@ void Scene::BeginApproach(float stopDistance)
 // Fades the running pose into standing and turns toward the cube at arrival.
 void Scene::UpdateApproach(double deltaSeconds)
 {
+    approachArrived = false;
     Animator& animator = model->GetAnimator();
     if (!synchronizeLocomotion || !approachActive)
     {
@@ -151,6 +156,7 @@ void Scene::UpdateApproach(double deltaSeconds)
     const auto& settings = locomotion.GetSettings();
     const double length = travelPath.TotalLength();
     const bool arrived = approachAlreadyNear || (!travelPath.closed && sample.distance >= length);
+    approachArrived = arrived;
     const double progress = length > 1e-6 ? sample.distance / length : 1.0;
     const double time = MotionProfile::TimeAtDistance(progress, settings.easeInEnd, settings.easeOutStart);
     float desiredWeight = arrived ? 1.0f : static_cast<float>((std::max)(0.0,
@@ -177,6 +183,63 @@ void Scene::UpdateApproach(double deltaSeconds)
         }
         model->SetPathYawDegrees(arrivalYawDegrees);
     }
+}
+
+// Displays right-hand reach controls and convergence diagnostics.
+void Scene::DrawIKMenu()
+{
+    if (!model || !ImGui::CollapsingHeader("IK debug")) return;
+    ImGui::DragFloat3("Target Position", &target.position.x, 0.05f);
+    ImGui::SliderFloat("Stopping distance", &approachStopDistance, 0.0f, 20.0f);
+    if (ImGui::Button("Approach target"))
+        BeginApproach(approachStopDistance);
+    ImGui::SameLine();
+    if (ImGui::Button("Restore loop"))
+    {
+        approachActive = false;
+        approachAlreadyNear = false;
+        travelPath = Path{};
+        pathDebugger.Initialize(travelPath);
+        locomotion.Restart(travelPath);
+    }
+    ImGui::SliderFloat("Standing pose tick", &standingPoseTicks, 0.0f, 339.0f);
+    if (approachActive)
+        ImGui::Text("Standing blend: %.0f%%", standingWeight * 100.0f);
+    ImGui::TextWrapped("Arrows: move X/Y. Page Up/Down: move Z. Shift: fine movement.");
+    ImGui::Separator();
+    ImGui::Checkbox("Enable CCD after arrival", &ikEnabled);
+    if (ikChain.joints.empty())
+    {
+        ImGui::TextUnformatted("No valid right-hand IK chain found.");
+        return;
+    }
+    //ImGui::TextWrapped("%s", ikChain.label.c_str());
+    //ImGui::Text("Links: %d", static_cast<int>(ikChain.joints.size()) - 1);
+    ImGui::SliderInt("CCD iterations", &ikSettings.maxIterations, 1, 128);
+    ImGui::SliderFloat("IK tolerance (world)", &ikSettings.toleranceWorld, 0.005f, 0.5f);
+    ImGui::SliderFloat("CCD step (radians)", &ikSettings.maxStepRadians, 0.01f, 0.5f);
+    ImGui::SliderFloat("IK strength", &ikStrength, 0.0f, 1.0f);
+    ImGui::DragFloat("Stagnation distance (world)", &ikSettings.stagnationWorld, 0.00001f, 0.0f, 0.05f, "%.5f");
+}
+
+// Solves after standing and fades corrections in while preserving the root position.
+void Scene::UpdateIK(double deltaSeconds)
+{
+    ikResult = CCDResult{};
+    if (ikChain.joints.empty())
+    {
+        ikWeight = 0.0f;
+        ikLines.reset();
+        return;
+    }
+    const bool active = ikEnabled && approachArrived && standingWeight >= 0.999f;
+    const float dt = std::isfinite(deltaSeconds) ? static_cast<float>((std::max)(0.0, deltaSeconds)) : 0.0f;
+    ikWeight = glm::clamp(ikWeight + (active ? dt : -dt) / 0.4f, 0.0f, 1.0f);
+    if (ikWeight > 0.0f)
+        ikResult = InverseKinematics::SolveCCD(model->GetAnimator(), ikChain, target.position,
+            model->GetModelTransform(), ikSettings, ikWeight * ikStrength);
+    if (!ikLines) ikLines = std::make_unique<LineRenderer>();
+    ikLines->SetLines(InverseKinematics::GetEndpoints(model->GetAnimator(), ikChain));
 }
 
 void Scene::DrawLocomotionMenu()
@@ -259,6 +322,7 @@ void Scene::ReleaseModels()
 {
     // Release debug buffers while the OpenGL context is still alive.
     targetLines.reset();
+    ikLines.reset();
     pathDebugger.Release();
     model = nullptr;
     for (auto& cached : loadedModels)
@@ -462,7 +526,7 @@ void Scene::DrawMenu()
     ImGui::SameLine();
     ImGui::Checkbox("Draw Mesh", &mesh);
 
-    if (synchronizeLocomotion)
+    if (synchronizeLocomotion && ImGui::CollapsingHeader("Motion debug"))
         DrawLocomotionMenu();
 
     if (!synchronizeLocomotion)
@@ -497,24 +561,7 @@ void Scene::DrawMenu()
         }
     }
 
-    ImGui::DragFloat3("Target Position", &target.position.x, 0.05f);
-    ImGui::SliderFloat("Stopping distance", &approachStopDistance, 0.0f, 20.0f);
-    if (ImGui::Button("Approach target"))
-        BeginApproach(approachStopDistance);
-    ImGui::SameLine();
-    if (ImGui::Button("Restore loop"))
-    {
-        approachActive = false;
-        approachAlreadyNear = false;
-        travelPath = Path{};
-        pathDebugger.Initialize(travelPath);
-        locomotion.Restart(travelPath);
-    }
-    ImGui::TextWrapped("Approach uses the current target position in XY. Click again after moving the cube.");
-    ImGui::SliderFloat("Standing pose tick", &standingPoseTicks, 0.0f, 339.0f);
-    if (approachActive)
-        ImGui::Text("Standing blend: %.0f%%", standingWeight * 100.0f);
-    ImGui::TextWrapped("Arrows: move X/Y. Page Up/Down: move Z. Shift: fine movement.");
+    DrawIKMenu();
 
     ImGui::End();
 
@@ -641,6 +688,7 @@ void Scene::DrawScene(double deltaSeconds)
     // Evaluate even while paused so the current playback position defines the pose.
     UpdateApproach(deltaSeconds);
     animator.EvaluatePose(animator.GetSampleTimeTicks());
+    UpdateIK(deltaSeconds);
     model->UpdateSkinningPose();
     model->UpdateSkeletonPose();
     if (mesh)
@@ -711,6 +759,13 @@ void Scene::DrawScene(double deltaSeconds)
 
     pathDebugger.Draw(travelPath, locomotion.GetSample().pathParam, model->GetModelTransform(),
         *basicShader, WorldProj, WorldView);
+
+    if (ikLines && ikEnabled && bone)
+    {
+        glm::mat4 ikTransform = model->GetModelTransform();
+        ikLines->Draw(*basicShader, WorldProj, WorldView, ikTransform,
+            glm::vec3(1.0f, 0.2f, 0.8f));
+    }
 
     if (targetLines)
     {

@@ -146,6 +146,7 @@
     <ClCompile Include="interact.cpp" />
     <ClCompile Include="LineRenderer.cpp" />
     <ClCompile Include="Animator.cpp" />
+    <ClCompile Include="InverseKinematics.cpp" />
     <ClCompile Include="AnimationData.cpp" />
     <ClCompile Include="Mesh.cpp" />
     <ClCompile Include="Path.cpp" />
@@ -170,6 +171,7 @@
     <ClInclude Include="interact.h" />
     <ClInclude Include="LineRenderer.h" />
     <ClInclude Include="Animator.h" />
+    <ClInclude Include="InverseKinematics.h" />
     <ClInclude Include="InterpolationMode.h" />
     <ClInclude Include="MotionProfile.h" />
     <ClInclude Include="Path.h" />

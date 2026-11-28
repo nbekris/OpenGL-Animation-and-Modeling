@@ -21,6 +21,7 @@
 #include "Path.h"
 #include "PathDebugger.h"
 #include "LocomotionController.h"
+#include "InverseKinematics.h"
 #include "LineRenderer.h"
 #include <array>
 #include <memory>
@@ -118,6 +119,19 @@ public:
     float standingWeight = 0.0f;
     float standingPoseTicks = 0.0f;
     float arrivalYawDegrees = 0.0f;
+
+    // Draws reach controls and convergence diagnostics.
+    void DrawIKMenu();
+    // Applies CCD after arrival and updates the highlighted right-hand chain.
+    void UpdateIK(double deltaSeconds);
+    bool ikEnabled = true;
+    bool approachArrived = false;
+    float ikWeight = 0.0f;
+    float ikStrength = 1.0f;
+    IKChain ikChain;
+    CCDSettings ikSettings;
+    CCDResult ikResult;
+    std::unique_ptr<LineRenderer> ikLines;
 
     // Target Object helper function
     // Builds the cube

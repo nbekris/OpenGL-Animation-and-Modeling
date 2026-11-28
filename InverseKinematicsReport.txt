@@ -1,0 +1,215 @@
+Niko Bekris
+Inverse Kinematics
+CS560 - Project 3
+
+Inverse Kinematics Documentation:
+
+Description:
+	In this text doc I go over the algorithms used:
+	- Approaching the target and transitioning into a standing pose
+	- Finding the skeletal chain for the right hand
+	- Cyclic Coordinate Descent (CCD)
+	- Local joint limits and elbow hinge constraints
+	- Joint priorities, rotation weights, and stopping conditions
+	- Blending the IK result with the animation
+
+	The project uses CCD to move the right-hand joint toward the center of a target cube.
+
+Instructions:
+	Target 	    - Use Target Position, or the arrow keys for X/Y and Page Up/Down for Z.
+				  Hold Shift for finer keyboard movement.
+				
+	Approach    - Adjust Stopping distance and click Approach target. Click again to rebuild
+				  the approach path after moving the cube. The standing character can continue
+				  using IK to follow the target without rebuilding the path.
+				
+	Standing    - Standing pose tick selects the animation sample used for the standing pose.
+	
+	IK          - Open IK debug and enable Enable CCD after arrival. The right-hand chain is highlighted in blue.
+				
+	Settings    - Adjust CCD iterations, IK tolerance (world), CCD step (radians), IK strength,
+				  and Stagnation distance (world).
+				
+	Diagnostics - The panel displays endpoint error, iteration count, and solver status.
+
+Approaching the Target:
+	The path system from the previous project moves the character near the cube before IK
+	starts. The target is projected onto the character's current ground plane. The endpoint
+	is offset from that projected target by the selected stopping distance:
+
+	D = normalize(targetGround - start)
+	end = targetGround - D * stoppingDistance
+
+	Eight evenly spaced control points describe a straight approach using the existing
+	Catmull-Rom evaluator. The path is open, so we avoid wrapping in this case.
+	If the character is already within the stopping distance, travel stops immediately.
+
+	During deceleration, the running pose blends toward a selected standing sample. After
+	arrival, the character turns toward the cube about the world Z axis. CCD fades in once
+	the standing blend is complete.
+
+	Files: scene.cpp - BeginApproach(), UpdateApproach()
+	       Path.cpp and LocomotionController.cpp
+
+Finding the Skeletal Chain:
+	FindRightHandChain() finds a bone whose lowercase name contains "righthand" and follows
+	its parent bones to the skeletal root. It reverses the collected indices into
+	root-to-hand order.
+
+	For both current character models (Roman/Viking), the right-hand chain is:
+	Hips -> Spine -> Spine1 -> Spine2 -> RightShoulder -> RightArm -> RightForeArm -> RightHand
+
+	This gives eight joints and seven links. Reaching the right hand from the hips requires 
+	the longer chain, instead of using 5 links. I implemeted more links because reaching with most
+	of the body distrbutes the motion more naturally. Although the contraints help more in producing
+	a natural pose.
+
+	Files: InverseKinematics.cpp - FindRightHandChain()
+	       Animator.cpp - IndexPoseNodes()
+
+Cyclic Coordinate Descent:
+	CCD adjusts one joint at a time to bring the end effector closer to the target. The
+	basic traversal begins at the joint nearest the end effector and works toward the root.
+	After each adjustment, forward kinematics updates the hierarchy so the next joint uses
+	the new end effector position.
+
+	Using the notation from my lecture notes:
+	Pc = current end effector position
+	Pd = desired target position
+	Jk = current joint position
+	Vck = Pc - Jk
+	Vdk = Pd - Jk
+
+	For a joint that can rotate around XYZ, normalize both direction vectors and calculate:
+	
+	beta = acos(clamp(dot(normalize(Vck), normalize(Vdk)), -1, 1))
+	A = cross(normalize(Vck), normalize(Vdk))
+
+	A gives the rotation axis. The code limits beta by the maximum angular step and scales
+	it by the joint weight. It converts that angle-axis rotation into a quaternion and
+	combines it with the joint's accumulated correction.
+
+	Files: InverseKinematics.cpp - SolveCCD(), JointRotation()
+	Sources: (class notes) sections "1. CCD - Intro" and "2. CCD Pseudo Code"
+
+Coordinate Spaces and Hierarchical Updates:
+	The cube position is in world space. Joint transforms also include the imported root
+	correction and the character's model translation, rotation, and scale. 
+	
+	The solver uses:
+	worldBasis = modelTransform * inverseRootMatrix
+	referenceWorld = worldBasis * parentGlobal * baseLocal
+
+	baseLocal is the joint's sampled local transform at the start of the solve.
+
+	The local correction is applied as:
+	newLocal = baseLocal * correctionRotation
+
+	RebuildGlobalPose() then composes each node with its parent. Descendants follow the
+	rotation, helper transforms included. The solver changes rotations. This preserves link 
+	lengths for the supported rigs and keeps the chain root's position fixed during the solve.
+
+	Files: InverseKinematics.cpp - SolveCCD()
+	       Animator.cpp - RebuildGlobalPose()
+	Source: (class notes), section "3. Constrained CCD", coordinate-space discussion
+
+Local Angle Limits and Hinge Constraints:
+	For XYZ joints, the implementation converts the candidate correction to local Euler angles 
+	and clamps each component before applying it:
+
+	alpha[a] = clamp(candidate[a], minimum[a], maximum[a])
+
+	These angles are offsets from the sampled pose. JointRotation() converts the bounded angles 
+	back into a quaternion, which becomes a rotation matrix for the local pose. The IK correction
+	uses GLM quaternions and matrices, animation sampling continues to use the VQS implementation.
+	This is for convenience since we need angleAxis and eulerAngles functions from the GLM library.
+
+	An elbow can instead use a single local hinge axis H. The solver projects both direction
+	vectors onto the plane to H:
+
+	Vprojected = V - H * dot(V, H)
+
+	After normalizing those projected vectors, it computes a signed rotation:
+	beta = atan2(dot(H, cross(Vck, Vdk)), dot(Vck, Vdk))
+
+	Only the selected hinge angle changes. Its minimum and maximum can restrict bending to
+	one direction. CreateSettings() estimates the forearm hinge axis from bind pose geometry
+	and the current assets forward direction. The initial bend range extends from zero
+	to 145 degrees in the estimated direction.
+
+	Files: InverseKinematics.cpp - CreateSettings(), SolveCCD(), JointRotation()
+	Source: (class notes), section "3. Constrained CCD", angle limitations
+
+Joint Priorities and Weights:
+	From class lectures, it is suggested to use a priority list PL and weights W to represent 
+	joint flexibility.
+	
+	Our solver first builds the usual end effector to root order. When priorities are enabled,
+	a stable sort visits lower priority numbers first. Equal priorities retain the original
+	end effector to root order.
+
+	The default right-arm settings favor the forearm and shoulder over the torso:
+	
+	(lower numbers = higher priority)
+	- Forearm: weight 1.0, priority 0
+	- Shoulder and upper arm: weight 0.9, priority 1
+	- Spine: weight 0.25, priority 4
+	- Hips: weight 0.15, priority 5
+
+	The joint's weight scales each angular step:
+	betaApplied = weight[k] * limitedAngularStep
+
+	A zero weight leaves that joint unchanged. A smaller nonzero weight reduces each
+	correction, but repeated sweeps can still accumulate a larger change. The angle limits
+	provide the hard bounds. Joint weight is separate from the overall IK blend strength.
+
+	Files: InverseKinematics.cpp - CreateSettings(), SolveCCD()
+	Source: (class notes), section "3. Constrained CCD", simulating joint flexibility
+
+Stopping Conditions and Solver Outline:
+	The solver stops when the end effector is close enough, a full sweep makes too little
+	end effector movement, or the maximum number of sweeps is exhausted. The default values are:
+
+	End effector tolerance: 0.05 world units
+	Stagnation tolerance: 0.0001 world units
+	Maximum sweeps: 48
+	Maximum angular step before joint weighting: 0.15 radians
+
+	The following outline corresponds to the CCD pseudocode in my class notes:
+
+	Save the sampled local pose and initialize correction angles to zero.
+	Build the joint traversal order, optionally using priorities.
+	While end effector error exceeds epsilon and sweeps remain:
+	    Pv = Pc
+	    For each joint in the traversal order:
+	        Stop the sweep if the end effector is within epsilon.
+	        Express end effector and target in the joint's reference frame.
+	        Calculate an XYZ angle-axis correction or signed hinge correction.
+	        Limit the step size and multiply by the joint weight.
+	        Clamp the accumulated local angles to their allowed ranges.
+	        Apply the correction and rebuild the global pose, updating Pc.
+	    Stop if |Pc - Pd| <= epsilon.
+	    Stop has stagnated if |Pc - Pv| <= delta.
+	Blend the bounded corrections and report the displayed end effector error.
+
+	Files: InverseKinematics.h - CCDSettings, CCDResult
+	       InverseKinematics.cpp - SolveCCD()
+	Source: (class notes), section "2. CCD Pseudo Code"
+
+Blending and Rendering the Result:
+	Solving an IK pose does not by itself animate the reach.
+	
+	scene.cpp fades the IK influence after arrival and completion of the standing blend. 
+	The final local correction angles are multiplied by this influence and the IK strength 
+	control. Because every angle interval includes zero, this blending remains inside the 
+	configured bounds.
+
+	The frame order is:
+		1. Update locomotion and the standing transition.
+		2. Sample the animation pose.
+		3. Run CCD and blend the local corrections.
+		4. Update the skeleton from the final transforms.
+
+	Files: scene.cpp - UpdateIK(), DrawScene()
+	       Animator.cpp - EvaluatePose(), RebuildGlobalPose()
+	Source: (class notes), section "3. Constrained CCD", animation discussion

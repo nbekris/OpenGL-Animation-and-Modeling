@@ -77,7 +77,7 @@ void PathDebugger::Initialize(const Path& travelPath)
         }
         auto& endpoints = i == 0 ? start : markers;
         constexpr int segments = 32;
-        constexpr float radius = 0.6f;
+        const float radius = travelPath.closed ? 0.6f : 0.15f;
         auto previous = p + glm::vec3(radius, 0.f, 0.f);
         for (int segment = 1; segment <= segments; ++segment)
         {

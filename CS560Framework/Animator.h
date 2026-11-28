@@ -53,11 +53,27 @@ public:
     void EvaluatePose(double timeTicks);
     // Sets a local-pose blend toward a fixed sample in the current animation.
     void SetPoseBlend(double targetTicks, float weight);
-
     void SetCyclePhase(double phase);
 
     const std::map<std::string, glm::mat4>& GetNodeTransforms() const { return m_nodeTransforms; }
     const std::vector<glm::vec3>& GetSkeletonEndpoints() const { return m_skeletonEndpoints; }
+    // Rebuilds global transforms and rendering outputs without resampling animation.
+    void RebuildGlobalPose();
+    struct PoseNode
+    {
+        const SkeletonNode* source;
+        int parent;
+        int parentBone;
+        bool bone;
+        glm::mat4 local{1.0f};
+        glm::mat4 global{1.0f};
+    };
+    // Exposes the indexed pose for procedural animation without allowing direct edits.
+    const std::vector<PoseNode>& GetPoseNodes() const { return m_poseNodes; }
+    // Changes one local transform; callers rebuild globals after editing the pose.
+    void SetLocalTransform(int index, const glm::mat4& transform) { m_poseNodes.at(index).local = transform; }
+    // Returns the imported root correction used by all rendered joint transforms.
+    glm::mat4 GetInverseRootMatrix() const { return m_data ? m_data->inverseRootMatrix : glm::mat4(1); }
 private:
     double GetTicksPerSecond() const;
     AnimationRange GetPlaybackRange() const;
@@ -65,8 +81,10 @@ private:
     void CacheAnimationChannels();
     const AnimationChannel* FindAnimationChannel(const std::string& nodeName) const;
     glm::mat4 SampleLocalTransform(const SkeletonNode* node, const AnimationChannel* channel, double animationTime);
-    void EvaluateNode(const SkeletonNode* node, const glm::mat4& parentTransform, double timeTicks,
-        bool hasParentBone, const glm::vec3& parentBonePosition);
+    // Indexes the imported hierarchy without discarding helper transforms.
+    void IndexPoseNodes(const SkeletonNode* node, int parent, int parentBone);
+    std::vector<PoseNode> m_poseNodes;
+
 
     std::unordered_map<const AnimationChannel*, RotationInterpolationState> m_rotationSamplers;
 
